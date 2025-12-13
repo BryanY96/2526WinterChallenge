@@ -65,8 +65,8 @@ export default function App() {
       Papa.parse(csvText, {
         header: true,
         skipEmptyLines: true,
-        complete: (results) => resolve(results.data),
-        error: (err) => reject(err)
+        complete: (results: any) => resolve(results.data),
+        error: (err: any) => reject(err)
       });
     });
   };

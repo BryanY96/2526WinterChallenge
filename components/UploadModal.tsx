@@ -26,82 +26,105 @@ export const UploadModal: React.FC<UploadModalProps> = ({
     const [name, setName] = useState('');
     const [status, setStatus] = useState<'idle' | 'submitting_sheet' | 'success' | 'error'>('idle');
     const [errorMessage, setErrorMessage] = useState('');
+    const [isScriptLoaded, setIsScriptLoaded] = useState(false);
     const widgetRef = useRef<any>(null);
 
-    // Initialize Widget once on mount
+    // Effect to check and wait for Cloudinary script
     useEffect(() => {
-        if (window.cloudinary && !widgetRef.current) {
-            try {
-                widgetRef.current = window.cloudinary.createUploadWidget({
-                    cloudName: cloudName, 
-                    uploadPreset: uploadPreset,
-                    sources: ['local', 'camera'], 
-                    // Change resourceType to 'auto' to prevent hangs if preset has strict type settings.
-                    // We still restrict to video files using clientAllowedFormats.
-                    resourceType: 'auto',       
-                    maxFileSize: 550000000,      // 550MB (slightly buffered)
-                    folder: 'winter_run_challenge', 
-                    clientAllowedFormats: ['mp4', 'mov', 'webm', 'avi'], 
-                    singleUploadAutoClose: false,
-                    styles: {
-                        palette: {
-                            window: "#1e1e1e", 
-                            sourceBg: "#1e1e1e",
-                            windowBorder: "#90a0b3",
-                            tabIcon: "#0094c7",
-                            inactiveTabIcon: "#69778a",
-                            menuIcons: "#0094c7",
-                            link: "#53ad9d",
-                            action: "#8F5DA5",
-                            inProgress: "#0194c7",
-                            complete: "#53ad9d",
-                            error: "#c43737",
-                            textDark: "#000000",
-                            textLight: "#FFFFFF"
+        let intervalId: ReturnType<typeof setInterval>;
+        let attempts = 0;
+        const maxAttempts = 50; // Try for about 5 seconds
+
+        const initWidget = () => {
+            if (window.cloudinary) {
+                try {
+                    widgetRef.current = window.cloudinary.createUploadWidget({
+                        cloudName: cloudName, 
+                        uploadPreset: uploadPreset,
+                        sources: ['local', 'camera'], 
+                        resourceType: 'auto',       
+                        maxFileSize: 550000000, // 550MB
+                        folder: 'winter_run_challenge', 
+                        clientAllowedFormats: ['mp4', 'mov', 'webm', 'avi'], 
+                        singleUploadAutoClose: false,
+                        styles: {
+                            palette: {
+                                window: "#1e1e1e", 
+                                sourceBg: "#1e1e1e",
+                                windowBorder: "#90a0b3",
+                                tabIcon: "#0094c7",
+                                inactiveTabIcon: "#69778a",
+                                menuIcons: "#0094c7",
+                                link: "#53ad9d",
+                                action: "#8F5DA5",
+                                inProgress: "#0194c7",
+                                complete: "#53ad9d",
+                                error: "#c43737",
+                                textDark: "#000000",
+                                textLight: "#FFFFFF"
+                            }
                         }
-                    }
-                }, (error: any, result: any) => { 
-                    if (!error && result && result.event === "success") { 
-                        console.log('Upload Success:', result.info);
-                        
-                        const path = result.info.path; 
-                        
-                        // Construct URL: Auto format (usually mp4/webm), Quality Auto, Width 400, Crop Fill, Accelerate 2x, No Audio
-                        // Note: We use resource_type from result to be safe, though usually it is 'video'
-                        const resType = result.info.resource_type || 'video';
-                        const finalUrl = `https://res.cloudinary.com/${cloudName}/${resType}/upload/f_auto,q_auto,w_400,c_fill,e_accelerate:200,ac_none/${path}`;
-                        
-                        handleGoogleSheetSubmit(name, finalUrl);
-                    } else if (error) {
-                        console.error("Cloudinary Widget Error:", error);
-                        // Often the widget handles its own UI errors, but logging helps debug.
-                        if (error.statusText === "Unauthorized") {
-                             alert("Error: Upload Preset seems to be Signed. Please set it to 'Unsigned' in Cloudinary Settings.");
+                    }, (error: any, result: any) => { 
+                        if (!error && result && result.event === "success") { 
+                            console.log('Upload Success:', result.info);
+                            const path = result.info.path; 
+                            const resType = result.info.resource_type || 'video';
+                            const finalUrl = `https://res.cloudinary.com/${cloudName}/${resType}/upload/f_auto,q_auto,w_400,c_fill,e_accelerate:200,ac_none/${path}`;
+                            handleGoogleSheetSubmit(name, finalUrl);
+                        } else if (error) {
+                            console.error("Cloudinary Widget Error:", error);
+                            if (error.statusText === "Unauthorized") {
+                                setErrorMessage("Error: Upload Preset Issue. Please contact admin.");
+                            }
                         }
-                    }
-                });
-            } catch (e) {
-                console.error("Failed to initialize Cloudinary widget", e);
+                    });
+                    setIsScriptLoaded(true);
+                    return true;
+                } catch (e) {
+                    console.error("Failed to initialize Cloudinary widget", e);
+                    return false;
+                }
             }
+            return false;
+        };
+
+        // Attempt immediately
+        if (!initWidget()) {
+            // If failed, poll for it
+            intervalId = setInterval(() => {
+                attempts++;
+                if (initWidget() || attempts >= maxAttempts) {
+                    clearInterval(intervalId);
+                    if (attempts >= maxAttempts) {
+                        setErrorMessage("Failed to load upload component. Please refresh.");
+                    }
+                }
+            }, 100);
         }
-    }, [cloudName, uploadPreset, name]); // Re-init if config changes (unlikely)
+
+        return () => {
+            if (intervalId) clearInterval(intervalId);
+        };
+    }, [cloudName, uploadPreset, name]); 
 
     const openWidget = () => {
         if (!name.trim()) {
             setErrorMessage("请先输入名字！(Please enter your name first)");
             return;
         }
-        setErrorMessage('');
-
-        if (!widgetRef.current) {
-            if (!window.cloudinary) {
-                setErrorMessage("Widget script not loaded. Please refresh.");
-            } else {
-                setErrorMessage("Widget initializing... please click again.");
+        
+        if (!isScriptLoaded || !widgetRef.current) {
+            setErrorMessage("Component loading... please wait a moment.");
+            // Try initializing one last time just in case
+            if (window.cloudinary && !widgetRef.current) {
+                // Re-trigger effect or manual init could happen here, 
+                // but the polling effect should have caught it.
+                setErrorMessage("Script loaded but widget not ready. Click again.");
             }
             return;
         }
 
+        setErrorMessage('');
         widgetRef.current.open();
     };
 
@@ -114,18 +137,14 @@ export const UploadModal: React.FC<UploadModalProps> = ({
             timestamp: new Date().toLocaleString()
         };
 
-        console.log("Sending to Google Sheet:", scriptPayload);
-
         try {
+            // Google Apps Script Web App "simple" CORS request
             await fetch(googleScriptUrl, {
                 method: 'POST',
                 mode: 'no-cors', 
-                headers: {
-                    'Content-Type': 'text/plain' 
-                },
+                headers: { 'Content-Type': 'text/plain' },
                 body: JSON.stringify(scriptPayload)
             });
-            console.log("Google Sheet request sent.");
             
             setStatus('success');
             setTimeout(() => {
@@ -192,10 +211,22 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                                     </div>
                                 )}
 
+                                {!isScriptLoaded && !errorMessage && (
+                                     <div className="flex items-center justify-center gap-2 text-xs text-amber-400">
+                                        <Loader2 size={12} className="animate-spin" />
+                                        Initializing uploader...
+                                     </div>
+                                )}
+
                                 <div className="pt-2">
                                     <button 
                                         onClick={openWidget}
-                                        className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-full shadow-lg transition transform hover:scale-105 flex items-center justify-center gap-2"
+                                        disabled={!isScriptLoaded}
+                                        className={`w-full font-bold py-3 px-6 rounded-full shadow-lg transition transform flex items-center justify-center gap-2
+                                            ${!isScriptLoaded 
+                                                ? 'bg-slate-700 text-slate-500 cursor-not-allowed' 
+                                                : 'bg-blue-600 hover:bg-blue-700 text-white hover:scale-105'
+                                            }`}
                                     >
                                         <Video size={20} />
                                         📹 上传视频

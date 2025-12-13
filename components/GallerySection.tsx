@@ -11,7 +11,7 @@ interface GallerySectionProps {
     items: GalleryItem[];
 }
 
-const MediaItem = ({ item }: { item: GalleryItem }) => {
+const MediaItem: React.FC<{ item: GalleryItem }> = ({ item }) => {
     // Basic check: if URL contains video indicators, treat as video
     // The new uploader adds 'f_auto' or 'e_accelerate', which might return mp4/webm.
     // We assume anything with 'f_auto' from the new uploader is a video loop.

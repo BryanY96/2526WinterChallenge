@@ -79,10 +79,27 @@ export const GallerySection: React.FC<GallerySectionProps> = ({ items }) => {
                     <p className="text-slate-500">No uploads yet. Be the first to check in!</p>
                 </div>
             ) : (
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                    {items.map((item, idx) => (
-                        <MediaItem key={`${idx}-${item.name}`} item={item} />
-                    ))}
+                <div className="relative">
+                    {/* 1. flex: 让子元素横向排列 
+                        2. overflow-x-auto: 允许水平滚动
+                        3. snap-x: 开启滚动吸附效果，手感更好
+                        4. pb-4: 底部留一点空间防止滚动条挡住内容
+                        5. no-scrollbar: 下面的 style 或者是 Tailwind 插件用来隐藏丑陋的滚动条
+                    */}
+                    <div className="flex overflow-x-auto gap-4 pb-4 snap-x snap-mandatory scroll-smooth [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                        {items.map((item, idx) => (
+                            // 必须给每个 Item 一个固定的宽度 (min-w) 并且防止被压缩 (flex-shrink-0)
+                            <div 
+                                key={`${idx}-${item.name}`} 
+                                className="flex-shrink-0 w-40 md:w-56 snap-start"
+                            >
+                                <MediaItem item={item} />
+                            </div>
+                        ))}
+                    </div>
+                    
+                    {/* (可选) 视觉提示：右侧渐变遮罩，提示用户还可以往右滑 */}
+                    <div className="absolute right-0 top-0 bottom-4 w-12 bg-gradient-to-l from-slate-800 to-transparent pointer-events-none" />
                 </div>
             )}
         </section>

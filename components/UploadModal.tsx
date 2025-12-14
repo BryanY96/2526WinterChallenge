@@ -27,6 +27,15 @@ export const UploadModal: React.FC<UploadModalProps> = ({
     const [status, setStatus] = useState<'idle' | 'submitting_sheet' | 'success' | 'error'>('idle');
     const [errorMessage, setErrorMessage] = useState('');
     const [isScriptLoaded, setIsScriptLoaded] = useState(false);
+    
+    // Fix: Use useRef to track the current name value across closures without re-initializing the widget
+    const nameRef = useRef(name);
+    
+    // Keep the ref in sync with state
+    useEffect(() => {
+        nameRef.current = name;
+    }, [name]);
+
     const widgetRef = useRef<any>(null);
 
     // Effect to check and wait for Cloudinary script
@@ -38,13 +47,15 @@ export const UploadModal: React.FC<UploadModalProps> = ({
         const initWidget = () => {
             if (window.cloudinary) {
                 try {
+                    // Only create the widget once (dependencies no longer include 'name')
                     widgetRef.current = window.cloudinary.createUploadWidget({
                         cloudName: cloudName, 
                         uploadPreset: uploadPreset,
                         sources: ['local', 'camera'], 
-                        resourceType: 'auto',       
+                        resourceType: 'video', // Enforce video only      
                         maxFileSize: 550000000, // 550MB
                         folder: 'winter_run_challenge', 
+                        // Restricted to video formats only
                         clientAllowedFormats: ['mp4', 'mov', 'webm', 'avi'], 
                         singleUploadAutoClose: false,
                         styles: {
@@ -70,7 +81,9 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                             const path = result.info.path; 
                             const resType = result.info.resource_type || 'video';
                             const finalUrl = `https://res.cloudinary.com/${cloudName}/${resType}/upload/f_auto,q_auto,w_400,c_fill,e_accelerate:200,ac_none/${path}`;
-                            handleGoogleSheetSubmit(name, finalUrl);
+                            
+                            // CRITICAL FIX: Use nameRef.current to get the latest name value inside this callback
+                            handleGoogleSheetSubmit(nameRef.current, finalUrl);
                         } else if (error) {
                             console.error("Cloudinary Widget Error:", error);
                             if (error.statusText === "Unauthorized") {
@@ -105,7 +118,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
         return () => {
             if (intervalId) clearInterval(intervalId);
         };
-    }, [cloudName, uploadPreset, name]); 
+    }, [cloudName, uploadPreset]); // 'name' is removed from dependencies to prevent widget re-creation
 
     const openWidget = () => {
         if (!name.trim()) {
@@ -115,12 +128,6 @@ export const UploadModal: React.FC<UploadModalProps> = ({
         
         if (!isScriptLoaded || !widgetRef.current) {
             setErrorMessage("Component loading... please wait a moment.");
-            // Try initializing one last time just in case
-            if (window.cloudinary && !widgetRef.current) {
-                // Re-trigger effect or manual init could happen here, 
-                // but the polling effect should have caught it.
-                setErrorMessage("Script loaded but widget not ready. Click again.");
-            }
             return;
         }
 
@@ -131,14 +138,18 @@ export const UploadModal: React.FC<UploadModalProps> = ({
     const handleGoogleSheetSubmit = async (runnerName: string, videoUrl: string) => {
         setStatus('submitting_sheet');
 
+        // Prepare Payload
         const scriptPayload = {
-            name: runnerName,
+            name: runnerName, // Now guaranteed to be the latest input value
             url: videoUrl,
             timestamp: new Date().toLocaleString()
         };
+        
+        console.log("Submitting to Sheet:", scriptPayload);
 
         try {
             // Google Apps Script Web App "simple" CORS request
+            // We use no-cors, so we can't read the response, but the request will go through.
             await fetch(googleScriptUrl, {
                 method: 'POST',
                 mode: 'no-cors', 
@@ -232,7 +243,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                                         📹 上传视频
                                     </button>
                                     <p className="text-center text-xs text-slate-500 mt-3">
-                                        Supports large videos. We'll speed it up 2x automatically!
+                                        Supports video (auto 2x speed).
                                     </p>
                                 </div>
                             </>

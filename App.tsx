@@ -13,7 +13,7 @@ import Papa from 'papaparse';
 const SPREADSHEET_ID = '1kLWZSg1MfTdUf8nc38n5HYv4N-xh4Nz__N-96_dSLtk'; 
 export const CLOUD_NAME = 'dieibdhtx';
 export const UPLOAD_PRESET = 'ChallengeVideos'; 
-export const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbycQ__HQh4DO_geqirOfvW1QP-QbqeL0ydX9X5clII2CT2WoIQQv4cKgD4JLiuQjHX4/exec';
+export const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxHWHNVkfkf_YZR3VnlUykhuvm-TPaToPvZNn7ipBdU2qNIwEdwfoSf3TOUKK6WBA5V/exec';
 
 // Updated Goal: 10,000km to Mohe (Arctic City)
 const GOAL_KM = 10000;
@@ -192,7 +192,7 @@ export default function App() {
     });
 
     // Process Gallery Sheet if available
-    const uploadSheet = sheetsMap['Uploads'] || [];
+    const uploadSheet = sheetsMap['Media Storage'] || [];
     console.log("[App] Raw Gallery Data:", uploadSheet);
 
     const gallery: GalleryItem[] = uploadSheet.map(row => {

@@ -53,7 +53,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                         uploadPreset: uploadPreset,
                         sources: ['local', 'camera'], 
                         resourceType: 'video', // Enforce video only      
-                        maxFileSize: 550000000, // 550MB
+                        // Adjusted to 500MB as requested
+                        maxFileSize: 500000000, 
                         folder: 'winter_run_challenge', 
                         // Restricted to video formats only
                         clientAllowedFormats: ['mp4', 'mov', 'webm', 'avi'], 
@@ -86,7 +87,9 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                             handleGoogleSheetSubmit(nameRef.current, finalUrl);
                         } else if (error) {
                             console.error("Cloudinary Widget Error:", error);
-                            if (error.statusText === "Unauthorized") {
+                            if (error.statusText && error.statusText.includes("exceeds maximum allowed")) {
+                                setErrorMessage("File is too large (Limit: 500MB). Please compress it.");
+                            } else if (error.statusText === "Unauthorized") {
                                 setErrorMessage("Error: Upload Preset Issue. Please contact admin.");
                             }
                         }
@@ -138,25 +141,34 @@ export const UploadModal: React.FC<UploadModalProps> = ({
     const handleGoogleSheetSubmit = async (runnerName: string, videoUrl: string) => {
         setStatus('submitting_sheet');
 
-        // Prepare Payload
-        const scriptPayload = {
-            name: runnerName, // Now guaranteed to be the latest input value
+        // FIXED: Use standard JSON object. 
+        // This works best with the GAS JSON.parse(e.postData.contents) logic.
+        const payload = {
+            name: runnerName,
             url: videoUrl,
             timestamp: new Date().toLocaleString()
         };
-        
-        console.log("Submitting to Sheet:", scriptPayload);
+
+        console.log("Submitting payload to Sheet:", payload);
 
         try {
-            // Google Apps Script Web App "simple" CORS request
-            // We use no-cors, so we can't read the response, but the request will go through.
+            // CRITICAL CHANGE: 
+            // 1. method: 'POST'
+            // 2. mode: 'no-cors' (Required for GAS web apps simple triggers)
+            // 3. headers: 'Content-Type': 'text/plain' 
+            //    Using 'text/plain' prevents the browser from sending a CORS Preflight (OPTIONS) request,
+            //    which GAS often fails to handle correctly. The body is still valid JSON string.
             await fetch(googleScriptUrl, {
                 method: 'POST',
                 mode: 'no-cors', 
-                headers: { 'Content-Type': 'text/plain' },
-                body: JSON.stringify(scriptPayload)
+                headers: { 
+                    'Content-Type': 'text/plain' 
+                },
+                body: JSON.stringify(payload)
             });
             
+            // Because mode is no-cors, we can't read the response status/body.
+            // We assume success if no network error was thrown.
             setStatus('success');
             setTimeout(() => {
                 onUploadSuccess();
@@ -185,7 +197,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                     <UploadCloud className="text-amber-500" />
                     幸运挑战视频 (Check-in)
                 </h2>
-                <p className="text-slate-400 text-sm mb-6">Upload your workout video (Max 550MB).</p>
+                <p className="text-slate-400 text-sm mb-6">Upload your workout video (Max 500MB).</p>
 
                 {status === 'success' ? (
                     <div className="text-center py-8">

@@ -1,22 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Gift, Sparkles, User, Lock, Clock, Camera } from 'lucide-react';
+import { Gift, Sparkles, User, Lock, Clock, Camera, Loader2 } from 'lucide-react';
 
 interface LuckyChallengeProps {
   currentWeekRunners: string[];
   weekId: string; // e.g., "W1", "W2"
   onUploadClick: () => void;
 }
-
-// Pool of tasks to be randomly assigned
-const CHALLENGE_TASKS = [
-    "Core Training: 1 Minute Plank (平板支撑)",
-    "Core Training: 30 Burpees (波比跳)",
-    "Core Training: 50 Deep Squats (深蹲)",
-    "Core Training: 20 Frog Jumps (蛙跳)",
-    "Core Training: 2 Minute Wall Sit (靠墙静蹲)",
-    "Core Training: 30 Leg Raises (仰卧抬腿)",
-    "Core Training: 40 Russian Twists (俄式转体)"
-];
 
 // Pseudo-random number generator seeded string (Simple Linear Congruential Generator)
 const seededRandom = (seed: number) => {
@@ -36,13 +25,51 @@ const getSeedFromString = (str: string) => {
 export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({ currentWeekRunners, weekId, onUploadClick }) => {
   const [winners, setWinners] = useState<string[]>([]);
   const [assignedTask, setAssignedTask] = useState<string>("");
+  const [challengePool, setChallengePool] = useState<string[]>([]);
+  const [isPoolLoading, setIsPoolLoading] = useState(true);
+  
   const [isDrawing, setIsDrawing] = useState(false);
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [statusMessage, setStatusMessage] = useState("Loading...");
 
+  // 1. Fetch Challenge Pool from text file
+  useEffect(() => {
+      const loadChallenges = async () => {
+          try {
+              const response = await fetch('ChallengesPool.txt');
+              if (response.ok) {
+                  const text = await response.text();
+                  // Split by newline, trim whitespace, and remove empty lines
+                  const tasks = text.split('\n')
+                      .map(line => line.trim())
+                      .filter(line => line.length > 0 && !line.startsWith('#')); // Ignore empty lines and comments
+                  
+                  if (tasks.length > 0) {
+                      setChallengePool(tasks);
+                  } else {
+                      console.warn("ChallengesPool.txt is empty.");
+                      setChallengePool(["Core Training: 1 Minute Plank (Default)"]);
+                  }
+              } else {
+                  console.error("Failed to fetch ChallengesPool.txt");
+                  setChallengePool(["Core Training: 1 Minute Plank (Fallback)"]);
+              }
+          } catch (error) {
+              console.error("Error loading challenge pool:", error);
+              setChallengePool(["Core Training: 1 Minute Plank (Fallback)"]);
+          } finally {
+              setIsPoolLoading(false);
+          }
+      };
+
+      loadChallenges();
+  }, []);
+
   // Deterministically pick winners and task based on weekId
+  // Now relies on challengePool state
   const performDeterministicDraw = () => {
     if (!currentWeekRunners || currentWeekRunners.length < 3) return null;
+    if (challengePool.length === 0) return null;
 
     // 1. Sort runners to ensure pool order is identical for everyone
     const sortedRunners = [...currentWeekRunners].sort();
@@ -67,19 +94,20 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({ currentWeekRunne
         rngStep++;
     }
 
-    // 4. Pick 1 Task
+    // 4. Pick 1 Task from the loaded pool
     const taskRand = seededRandom(baseSeed + 999);
-    const taskIdx = Math.floor(taskRand * CHALLENGE_TASKS.length);
+    const taskIdx = Math.floor(taskRand * challengePool.length);
     
     return {
         winners: resultWinners,
-        task: CHALLENGE_TASKS[taskIdx]
+        task: challengePool[taskIdx]
     };
   };
 
+  // 2. Main Logic Effect (Wait for pool to load before running logic)
   useEffect(() => {
-      if (!weekId) {
-          setStatusMessage("Waiting for data...");
+      if (!weekId || isPoolLoading) {
+          setStatusMessage(isPoolLoading ? "Loading Challenges..." : "Waiting for data...");
           return;
       }
 
@@ -107,7 +135,7 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({ currentWeekRunne
               setStatusMessage("Ready to Draw");
           } else {
               setIsUnlocked(false);
-              setStatusMessage("Draw Opens: Sunday 8 PM EST");
+              setStatusMessage("Draw Opens: Sunday 8PM EST, Close: Monday 12AM EST");
           }
       };
 
@@ -118,6 +146,7 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({ currentWeekRunne
       const hasSeen = localStorage.getItem(`seen_draw_${weekId}`);
       if (hasSeen) {
           // Re-calculate results to ensure consistency
+          // Now safe to call because isPoolLoading is false
           const result = performDeterministicDraw();
           if (result) {
             setWinners(result.winners);
@@ -126,14 +155,14 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({ currentWeekRunne
       }
 
       return () => clearInterval(timer);
-  }, [weekId, currentWeekRunners]); // Re-run if data updates
+  }, [weekId, currentWeekRunners, isPoolLoading, challengePool]); // Add pool dependencies
 
   const handleDraw = () => {
     if (isDrawing || !isUnlocked) return;
     
     const result = performDeterministicDraw();
     if (!result) {
-        alert("Not enough runners active this week to draw!");
+        alert("Not enough runners active this week to draw, or challenge pool failed to load.");
         return;
     }
 
@@ -211,9 +240,9 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({ currentWeekRunne
                     </div>
                 ) : (
                     <div>
-                        {!isUnlocked ? (
+                        {!isUnlocked || isPoolLoading ? (
                             <div className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-slate-700 text-slate-400 border border-slate-600 cursor-not-allowed">
-                                <Clock size={18} />
+                                {isPoolLoading ? <Loader2 size={18} className="animate-spin" /> : <Clock size={18} />}
                                 <span>{statusMessage}</span>
                             </div>
                         ) : (
@@ -232,12 +261,12 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({ currentWeekRunne
                          
                          {/* Info Text */}
                          <div className="mt-4 flex flex-col items-center gap-1">
-                            {!isUnlocked && (
+                            {!isUnlocked && !isPoolLoading && (
                                 <p className="text-xs text-slate-500 flex items-center gap-1">
                                     <Lock size={12} /> Results are locked until Sunday 8 PM EST.
                                 </p>
                             )}
-                            {isUnlocked && !hasResult && (
+                            {isUnlocked && !hasResult && !isPoolLoading && (
                                 <p className="text-xs text-slate-500">
                                     Draw is open! Results are final for the week.
                                 </p>

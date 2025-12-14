@@ -240,7 +240,7 @@ export const MapSection: React.FC<MapSectionProps> = ({ progressPercentage }) =>
       const size = Math.max(60, Math.min(240, rawSize));
       
       return icon({
-          iconUrl: 'https://i.postimg.cc/ZR7vnVwF/horse-runner-removebg-preview.png',
+          iconUrl: '/horse_runner.png', // Changed from remote URL to local public file
           iconSize: [size, size],
           iconAnchor: [size / 2, size * 0.9], 
           popupAnchor: [0, -size * 0.8],
@@ -376,4 +376,4 @@ export const MapSection: React.FC<MapSectionProps> = ({ progressPercentage }) =>
       </div>
     </section>
   );
-};
+}

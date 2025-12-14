@@ -1,12 +1,15 @@
 import React, { useMemo, useEffect, useState, useRef } from 'react';
 import { MapContainer, TileLayer, Polyline, Marker, Popup, useMap, useMapEvents } from 'react-leaflet';
 import { divIcon, icon } from 'leaflet';
-import { Crosshair } from 'lucide-react';
+import { Crosshair, MapPin } from 'lucide-react';
 
 // Coordinates (The "Perfect 10k" Route)
 const COORDS_DC: [number, number] = [38.9072, -77.0369];
 const COORDS_ANCHORAGE: [number, number] = [61.2181, -149.9003]; // Critical Waypoint
 const COORDS_MOHE: [number, number] = [53.4846, 122.3705];
+
+const TOTAL_GOAL_KM = 10000;
+const ANCHORAGE_MARKER_KM = 5400; // Approximate distance from DC to Anchorage
 
 interface MapSectionProps {
   progressPercentage: number;
@@ -234,6 +237,12 @@ export const MapSection: React.FC<MapSectionProps> = ({ progressPercentage }) =>
     };
   }, [progressPercentage]);
 
+  // Calculate distance stats for Anchorage Marker
+  const currentKm = (progressPercentage / 100) * TOTAL_GOAL_KM;
+  const remainingToAnchorage = ANCHORAGE_MARKER_KM - currentKm;
+  const remainingToMohe = TOTAL_GOAL_KM - currentKm;
+  const isAnchoragePassed = remainingToAnchorage <= 0;
+
   // Dynamic Icon Sizing
   const dynamicRunnerIcon = useMemo(() => {
       const rawSize = currentZoom * 12 + 10; 
@@ -320,9 +329,19 @@ export const MapSection: React.FC<MapSectionProps> = ({ progressPercentage }) =>
           {/* Waypoint: Anchorage (Supply Station) */}
           <Marker position={COORDS_ANCHORAGE} icon={aidStationIcon}>
               <Popup>
-                  <div className="text-center text-slate-800">
-                      <strong>Anchorage, AK</strong>
-                      <p className="text-xs">Winter Supply Station ☕</p>
+                  <div className="text-center text-slate-800 px-1">
+                      <strong className="text-sm font-bold block text-slate-900">Anchorage, AK</strong>
+                      <p className="text-xs font-bold text-red-600 mb-1">补给站 ☕</p>
+                      
+                      {remainingToAnchorage > 0 ? (
+                          <span className="text-xs text-slate-500">
+                            ({Math.ceil(remainingToAnchorage).toLocaleString()} km left)
+                          </span>
+                      ) : (
+                          <span className="text-xs text-green-500">
+                             (✅ Reached)
+                          </span>
+                      )}
                   </div>
               </Popup>
           </Marker>
@@ -332,7 +351,17 @@ export const MapSection: React.FC<MapSectionProps> = ({ progressPercentage }) =>
              <Popup>
                <div className="text-center">
                  <p className="font-bold text-red-600">终点：神州北极 (Mohe)</p>
-                 <p className="text-xs text-slate-600 mt-1">10,000km 达成！</p>
+                 <p className="text-xs font-bold text-green-600 mt-1">10,000 km 达成！</p>
+
+                 {remainingToMohe > 0 ? (
+                          <span className="text-xs text-slate-500">
+                            ({Math.ceil(remainingToMohe).toLocaleString()} km left)
+                          </span>
+                      ) : (
+                          <span className="text-xs text-green-500">
+                             (✅ Reached)
+                          </span>
+                      )}
                </div>
              </Popup>
           </Marker>

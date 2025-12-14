@@ -13,7 +13,7 @@ import Papa from 'papaparse';
 const SPREADSHEET_ID = '1kLWZSg1MfTdUf8nc38n5HYv4N-xh4Nz__N-96_dSLtk'; 
 export const CLOUD_NAME = 'dieibdhtx';
 export const UPLOAD_PRESET = 'ChallengeVideos'; 
-export const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxHWHNVkfkf_YZR3VnlUykhuvm-TPaToPvZNn7ipBdU2qNIwEdwfoSf3TOUKK6WBA5V/exec';
+export const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzoF4WKL_tT3uy1V6XIn7xObs7-cxCmsw5IJFZe0_R0-LFqCkpTnCyTK95nSneEtMTk/exec';
 
 // Updated Goal: 10,000km to Mohe (Arctic City)
 const GOAL_KM = 10000;
@@ -192,6 +192,7 @@ export default function App() {
     });
 
     // Process Gallery Sheet if available
+    // MATCH KEY: Use 'Media Storage' as we are fetching that specific sheet name now
     const uploadSheet = sheetsMap['Media Storage'] || [];
     console.log("[App] Raw Gallery Data:", uploadSheet);
 
@@ -259,35 +260,36 @@ export default function App() {
     let uploadsData: any[] | null = null;
     
     try {
-      // 1. Try to fetch the "Uploads" sheet first for Gallery
+      // 1. Fetch "Media Storage" sheet for Gallery (Matching GAS script)
       try {
-          const uploadsUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=Uploads`;
+          // Note: The sheet name in the URL parameter must match the tab name in Google Sheets
+          const uploadsUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=Media%20Storage`;
           const uploadsRes = await fetch(uploadsUrl);
           if (uploadsRes.ok) {
               const text = await uploadsRes.text();
               if (!text.includes('google.visualization.Query.setResponse')) {
                  const data = await parseCSV(text);
                  if (data && data.length > 0) {
-                     sheetsMap['Uploads'] = data;
+                     sheetsMap['Media Storage'] = data;
                      uploadsData = data; // Store reference to detect duplicates
                  }
               }
           }
       } catch (e) {
-          console.warn("Could not fetch 'Uploads' sheet.");
+          console.warn("Could not fetch 'Media Storage' sheet.");
       }
       
-      // Fallback for uploads lowercase if uppercase failed
+      // Fallback for "Uploads" if "Media Storage" fails (Legacy support)
       if (!uploadsData) {
         try {
-            const uploadsUrlLC = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=uploads`;
+            const uploadsUrlLC = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=Uploads`;
             const uploadsResLC = await fetch(uploadsUrlLC);
             if (uploadsResLC.ok) {
                 const textLC = await uploadsResLC.text();
                 if (!textLC.includes('google.visualization.Query.setResponse')) {
                     const dataLC = await parseCSV(textLC);
                     if (dataLC && dataLC.length > 0) {
-                        sheetsMap['Uploads'] = dataLC;
+                        sheetsMap['Media Storage'] = dataLC; // Map to same key for processing
                         uploadsData = dataLC;
                     }
                 }
@@ -318,22 +320,21 @@ export default function App() {
               const data = await parseCSV(text);
               if (!data || data.length === 0) break; 
 
-              // --- CRITICAL FIX: Detect if this is actually the Uploads sheet returned by default ---
-              // If the headers look like the Uploads sheet (has Url/Link and Timestamp/Date), stop.
+              // --- CRITICAL FIX: Detect if this is actually the Uploads/Media sheet returned by default ---
               const headers = Object.keys(data[0] || {});
               const hasUrl = headers.some(h => /url|link/i.test(h));
               const hasTimestamp = headers.some(h => /timestamp|date/i.test(h));
               const hasDistance = headers.some(h => /distance|total|run|km|mile/i.test(h));
               
-              // If it has Url+Timestamp but NO Distance column, it's definitely the Uploads sheet
+              // If it has Url+Timestamp but NO Distance column, it's definitely the Media sheet
               if (hasUrl && hasTimestamp && !hasDistance) {
-                  console.log(`[Fetch] Stopping at ${sheetName} because it looks like the Uploads sheet.`);
+                  console.log(`[Fetch] Stopping at ${sheetName} because it looks like the Media sheet.`);
                   break;
               }
 
               // Double check against fetched uploads data if available
               if (uploadsData && JSON.stringify(data[0]) === JSON.stringify(uploadsData[0])) {
-                  console.log(`[Fetch] Stopping at ${sheetName} because content matches Uploads sheet.`);
+                  console.log(`[Fetch] Stopping at ${sheetName} because content matches Media sheet.`);
                   break;
               }
 

@@ -6,6 +6,7 @@ import { LuckyChallenge } from './components/LuckyChallenge';
 import { Leaderboard, Period } from './components/Leaderboard';
 import { GallerySection, GalleryItem } from './components/GallerySection';
 import { UploadModal } from './components/UploadModal';
+import { BackgroundEffects } from './components/BackgroundEffects';
 import { Snowflake, RefreshCw, AlertCircle } from 'lucide-react';
 import Papa from 'papaparse';
 
@@ -368,12 +369,9 @@ export default function App() {
   const progressPercentage = Math.min(100, Math.max(0, (totalDistance / GOAL_KM) * 100));
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 pb-12">
-      <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
-        <div className="absolute top-0 left-0 w-full h-96 bg-gradient-to-b from-red-900/20 to-transparent opacity-50"></div>
-        <div className="absolute -top-20 -right-20 w-96 h-96 bg-red-600/10 rounded-full blur-3xl"></div>
-        <div className="absolute top-40 -left-20 w-72 h-72 bg-amber-500/5 rounded-full blur-3xl"></div>
-      </div>
+    <div className="min-h-screen text-slate-100 pb-12 relative">
+      {/* Replaces old static background divs */}
+      <BackgroundEffects />
 
       <main className="relative z-10 max-w-lg mx-auto md:max-w-3xl lg:max-w-4xl xl:max-w-6xl px-4 flex flex-col gap-8">
         

@@ -209,7 +209,7 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({ currentWeekRunne
                 本周加练挑战 ({weekId})
                 <Sparkles size={20} className="text-amber-200" />
             </h2>
-            <p className="text-center text-slate-400 text-sm mb-6">Lucky Musketeers</p>
+            <p className="text-center text-slate-400 text-sm mb-6">🎲 天选之子</p>
 
             {/* Winner Cards */}
             <div className="grid grid-cols-3 gap-3 mb-6">
@@ -284,7 +284,7 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({ currentWeekRunne
                >
                   <Camera size={18} className="text-amber-500 group-hover:scale-110 transition-transform" />
                   <span className="text-sm font-bold bg-gradient-to-r from-amber-400 to-red-500 bg-clip-text text-transparent">
-                    📢 请幸运跑友上传视频！
+                    📢 请天选之子们上传视频！
                   </span>
                </button>
             </div>

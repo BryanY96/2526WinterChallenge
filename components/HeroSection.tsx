@@ -32,7 +32,7 @@ export const HeroSection: React.FC<HeroSectionProps> = () => {
   return (
     <section className="pt-8 pb-4 text-center space-y-6">
       <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-900/30 border border-red-500/30 text-red-200 text-xs font-medium uppercase tracking-wider mb-2">
-        <MapPin size={12} /> DC to Mohe (China)
+        <MapPin size={12} /> DC to China
       </div>
       
       <div className="space-y-2">

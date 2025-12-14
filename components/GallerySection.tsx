@@ -11,7 +11,7 @@ interface GallerySectionProps {
     items: GalleryItem[];
 }
 
-const MediaItem: React.FC<{ item: GalleryItem }> = ({ item }) => {
+const MediaItem: React.FC<{ item: GalleryItem, className?: string }> = ({ item, className }) => {
     // Basic check: if URL contains video indicators, treat as video
     // The new uploader adds 'f_auto' or 'e_accelerate', which might return mp4/webm.
     // We assume anything with 'f_auto' from the new uploader is a video loop.
@@ -22,7 +22,7 @@ const MediaItem: React.FC<{ item: GalleryItem }> = ({ item }) => {
                     item.url.includes('e_accelerate');
 
     return (
-        <div className="group relative bg-slate-900 rounded-xl overflow-hidden aspect-[4/5] border border-slate-700 hover:border-amber-500/50 transition-colors">
+        <div className={`group relative bg-slate-900 rounded-xl overflow-hidden border border-slate-700 hover:border-amber-500/50 transition-colors ${className}`}>
             {isVideo ? (
                 <video
                     src={item.url}
@@ -80,25 +80,40 @@ export const GallerySection: React.FC<GallerySectionProps> = ({ items }) => {
                 </div>
             ) : (
                 <div className="relative">
-                    {/* 1. flex: 让子元素横向排列 
-                        2. overflow-x-auto: 允许水平滚动
-                        3. snap-x: 开启滚动吸附效果，手感更好
-                        4. pb-4: 底部留一点空间防止滚动条挡住内容
-                        5. no-scrollbar: 下面的 style 或者是 Tailwind 插件用来隐藏丑陋的滚动条
+                    {/* 
+                      DESKTOP LAYOUT (Hidden on mobile) 
+                      Single row, large cards.
                     */}
-                    <div className="flex overflow-x-auto gap-4 pb-4 snap-x snap-mandatory scroll-smooth [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                    <div className="hidden md:flex overflow-x-auto gap-4 pb-4 snap-x snap-mandatory scroll-smooth [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
                         {items.map((item, idx) => (
-                            // 必须给每个 Item 一个固定的宽度 (min-w) 并且防止被压缩 (flex-shrink-0)
                             <div 
-                                key={`${idx}-${item.name}`} 
-                                className="flex-shrink-0 w-40 md:w-56 snap-start"
+                                key={`d-${idx}-${item.name}`} 
+                                className="flex-shrink-0 w-56 aspect-[4/5] snap-start"
                             >
-                                <MediaItem item={item} />
+                                <MediaItem item={item} className="w-full h-full" />
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* 
+                      MOBILE LAYOUT (Hidden on desktop)
+                      Grid with 2 rows and horizontal scrolling (grid-flow-col).
+                      Constraint: Container height must be defined for grid-rows to work.
+                      Height calculation: 2 rows of ~160px-200px cards + gap.
+                      We use h-[400px] to fit two nice vertical video cards.
+                    */}
+                    <div className="md:hidden grid grid-rows-2 grid-flow-col gap-3 overflow-x-auto snap-x snap-mandatory pb-4 h-[420px] auto-cols-[45%] [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                         {items.map((item, idx) => (
+                            <div 
+                                key={`m-${idx}-${item.name}`} 
+                                className="snap-start relative w-full h-full"
+                            >
+                                <MediaItem item={item} className="w-full h-full absolute inset-0" />
                             </div>
                         ))}
                     </div>
                     
-                    {/* (可选) 视觉提示：右侧渐变遮罩，提示用户还可以往右滑 */}
+                    {/* Fade overlay for scroll hint */}
                     <div className="absolute right-0 top-0 bottom-4 w-12 bg-gradient-to-l from-slate-800 to-transparent pointer-events-none" />
                 </div>
             )}

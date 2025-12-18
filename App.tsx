@@ -21,11 +21,14 @@ const GOAL_KM = 10000;
 // W1 Start Date: Dec 15, 2025 (As requested)
 const START_DATE = new Date('2025-12-15T00:00:00'); 
 
-interface RunnerData {
+export interface RunnerData {
   name: string;
   distance: number;
-  hasStreak?: boolean; // Weekly >= 5 runs
-  isPerfect?: boolean; // Maintained streak every week since W1
+  rawDistance?: number;
+  bonusDistance?: number;
+  streakCount?: number;
+  hasStreak?: boolean; 
+  isPerfect?: boolean; 
 }
 
 // Helper: Generate display label for a week key (e.g., "W1" -> "W1 (12/15-12/21)")
@@ -141,23 +144,26 @@ export default function App() {
             if (!name) return;
             
             runnerNamesSet.add(name);
-            const { distance, frequency } = analyzeRow(row);
-            
+            const { distance: rawDistance, frequency } = analyzeRow(row);
             const hasWeeklyStreak = frequency >= 5;
 
-            // Stats for this specific week
-            if (distance > 0) {
+            // Apply 1.2x Bonus if they have a streak
+            const bonusMultiplier = hasWeeklyStreak ? 1.2 : 1.0;
+            const finalDistance = rawDistance * bonusMultiplier;
+            const bonusDistance = finalDistance - rawDistance;
+
+            if (finalDistance > 0) {
                 periodRunners.push({ 
                     name, 
-                    distance,
-                    hasStreak: hasWeeklyStreak, 
-                    isPerfect: false 
+                    distance: finalDistance,
+                    rawDistance: rawDistance,
+                    bonusDistance: bonusDistance,
+                    hasStreak: hasWeeklyStreak
                 });
             }
 
-            // Accumulate Data for Total View
-            runnerTotals[name] = (runnerTotals[name] || 0) + distance;
-            
+            // Accumulate for Total View
+            runnerTotals[name] = (runnerTotals[name] || 0) + finalDistance;
             if (hasWeeklyStreak) {
                 runnerWeekStreaks[name] = (runnerWeekStreaks[name] || 0) + 1;
             }
@@ -183,7 +189,7 @@ export default function App() {
     const totalRunners: RunnerData[] = Array.from(runnerNamesSet).map(name => ({
         name,
         distance: runnerTotals[name] || 0,
-        hasStreak: false, 
+        streakCount: runnerWeekStreaks[name] || 0, 
         isPerfect: (runnerWeekStreaks[name] || 0) === totalWeeksProcessed && totalWeeksProcessed > 0
     })).filter(r => r.distance > 0).sort((a, b) => b.distance - a.distance);
 

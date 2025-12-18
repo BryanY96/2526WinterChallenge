@@ -1,16 +1,10 @@
 import React, { useState } from 'react';
-import { Trophy, Medal, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Crown, Flame } from 'lucide-react';
-
-interface Runner {
-  name: string;
-  distance: number;
-  hasStreak?: boolean; // >= 5 runs in a specific week
-  isPerfect?: boolean; // Maintained streak every single week
-}
+import { Trophy, Medal, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Crown, Flame, Zap } from 'lucide-react';
+import { RunnerData } from '../App';
 
 export interface Period {
     label: string;
-    runners: Runner[];
+    runners: RunnerData[];
 }
 
 interface LeaderboardProps {
@@ -21,7 +15,6 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ periods }) => {
   const [showAll, setShowAll] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
 
-  // Safety check
   if (!periods || periods.length === 0) {
       return (
         <section className="bg-slate-800 rounded-2xl border border-slate-700 p-8 text-center text-slate-500">
@@ -33,15 +26,13 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ periods }) => {
   const currentPeriod = periods[currentIndex];
   const isTotalView = currentIndex === 0;
   
-  // Show top 5 by default, or all if expanded
   const displayCount = showAll ? currentPeriod.runners.length : 5;
   const displayedRunners = currentPeriod.runners.slice(0, displayCount);
 
-  // Handlers for navigation
   const goNext = () => {
     if (currentIndex < periods.length - 1) {
         setCurrentIndex(prev => prev + 1);
-        setShowAll(false); // Reset expansion when changing views
+        setShowAll(false);
     }
   };
 
@@ -60,7 +51,6 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ periods }) => {
                 <h3 className="font-bold text-lg text-red-100">光荣榜</h3>
             </div>
             
-            {/* Period Navigation */}
             <div className="flex items-center gap-2 bg-slate-900/50 rounded-lg p-1">
                 <button 
                     onClick={goPrev}
@@ -102,6 +92,9 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ periods }) => {
                     {displayedRunners.length > 0 ? (
                         displayedRunners.map((runner, index) => {
                             const rank = index + 1;
+                            const streakCount = runner.streakCount || 0;
+                            const isElite = streakCount >= 7;
+
                             return (
                                 <tr key={`${runner.name}-${index}`} className="hover:bg-slate-700/30 transition-colors animate-fadeIn">
                                     <td className="px-4 py-3">
@@ -110,33 +103,65 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ periods }) => {
                                         {rank === 3 && <Medal size={20} className="text-amber-700 drop-shadow-sm" />}
                                         {rank > 3 && <span className="font-mono text-slate-500 w-5 inline-block text-center">{rank}</span>}
                                     </td>
-                                    <td className="px-4 py-3 font-medium text-slate-200 flex items-center gap-2">
-                                        <span>{runner.name}</span>
-                                        
-                                        {/* --- Weekly Streak: Flame with Pulse --- */}
-                                        {!isTotalView && runner.hasStreak && (
-                                            <div title="Weekly Streak: 5+ Runs!" className="ml-1">
-                                                <Flame 
-                                                    size={16} 
-                                                    className="text-orange-500 animate-pulse drop-shadow-[0_0_5px_rgba(249,115,22,0.6)]" 
-                                                    fill="currentColor" 
-                                                />
-                                            </div>
-                                        )}
+                                    <td className="px-4 py-3 font-medium text-slate-200">
+                                        <div className="flex flex-col gap-1">
+                                            <div className="flex items-center gap-2">
+                                                <span>{runner.name}</span>
+                                                {/* --- Total View Streak UI --- */}
+                                                {isTotalView && (
+                                                    <div className="flex items-center gap-0.5">
+                                                        {isElite ? (
+                                                            <div title="Elite Achievement: 7+ Streaks!" className="animate-bounce">
+                                                                <Crown 
+                                                                    size={18} 
+                                                                    className="text-yellow-400 drop-shadow-[0_0_8px_rgba(250,204,21,1)]" 
+                                                                    fill="currentColor" 
+                                                                />
+                                                            </div>
+                                                        ) : (
+                                                            Array.from({ length: streakCount }).map((_, i) => (
+                                                                <Flame 
+                                                                    key={i}
+                                                                    size={14} 
+                                                                    className="text-orange-500 drop-shadow-[0_0_3px_rgba(249,115,22,0.4)]" 
+                                                                    fill="currentColor" 
+                                                                />
+                                                            ))
+                                                        )}
+                                                    </div>
+                                                )}
 
-                                        {/* --- Perfect Streak: Crown with Gold Glow --- */}
-                                        {isTotalView && runner.isPerfect && (
-                                            <div title="Perfect Streak: 5+ Runs every week!" className="ml-1">
-                                                <Crown 
-                                                    size={16} 
-                                                    className="text-yellow-400 drop-shadow-[0_0_8px_rgba(250,204,21,0.8)]" 
-                                                    fill="currentColor" 
-                                                />
+                                                {/* --- Weekly View Streak Indicator --- */}
+                                                {!isTotalView && runner.hasStreak && (
+                                                    <Zap size={14} className="text-yellow-400 fill-yellow-400 animate-pulse" />
+                                                )}
                                             </div>
-                                        )}
+                                            {isTotalView && streakCount > 0 && (
+                                                <span className="text-[10px] text-slate-500 uppercase tracking-tighter">
+                                                    {streakCount} 连击{streakCount > 1 ? 's' : ''}
+                                                </span>
+                                            )}
+                                        </div>
                                     </td>
-                                    <td className="px-4 py-3 text-right font-bold text-amber-500">
-                                        {runner.distance.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 2 })}
+                                    <td className="px-4 py-3 text-right">
+                                        <div className="flex flex-col items-end">
+                                            <span className="font-bold text-amber-500 text-base">
+                                                {runner.distance.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
+                                            </span>
+                                            
+                                            {/* --- Bonus Breakdown in Weekly View --- */}
+                                            {!isTotalView && runner.hasStreak && runner.bonusDistance && runner.rawDistance && (
+                                                <div className="flex items-center gap-1 text-[10px] text-green-500 font-bold whitespace-nowrap">
+                                                    <span>{runner.rawDistance.toFixed(1)}</span>
+                                                    <span className="opacity-60">+</span>
+                                                    <div className="flex items-center">
+                                                        <Zap size={8} />
+                                                        <span>{runner.bonusDistance.toFixed(1)}</span>
+                                                    </div>
+                                                    <span className="bg-green-500/10 px-1 rounded text-[9px] border border-green-500/20">1.2x</span>
+                                                </div>
+                                            )}
+                                        </div>
                                     </td>
                                 </tr>
                             );

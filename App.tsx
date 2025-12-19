@@ -75,34 +75,49 @@ export default function App() {
     });
   };
 
-  // Analyze row to get Distance AND Frequency (Run Count)
+  // Improved row analysis logic
   const analyzeRow = (row: any): { distance: number, frequency: number } => {
       const keys = Object.keys(row);
-      const totalKey = keys.find(k => /distance|km|mile|total/i.test(k) && !/name|队员/i.test(k));
+      
+      // 1. Identify the primary Total column
+      const totalKey = keys.find(k => 
+        /total|distance|km|mile|总里程|累计/i.test(k) && 
+        !/name|队员|姓名|user|id/i.test(k)
+      );
+
+      // 2. Define what counts as a "Daily Log" column
+      const isDailyColumn = (k: string) => {
+          // Matches Chinese days (周一...周日), English days (Mon...Sun), or Date format (12/15)
+          const dayPattern = /周[一二三四五六日]|mon|tue|wed|thu|fri|sat|sun/i;
+          const datePattern = /^\d{1,2}[\/\-]\d{1,2}/; 
+          return dayPattern.test(k) || datePattern.test(k);
+      };
+
       let distance = 0;
       let frequency = 0;
+      let calcSum = 0;
 
       if (totalKey) {
           distance = parseFloat(row[totalKey]) || 0;
       }
-
-      let calcSum = 0;
+    
       keys.forEach(k => {
-          // Exclude Name columns
-          if (k.includes('队员') || k.includes('Name')) return;
-          // Exclude the Total column itself
+          // Exclude identified non-distance columns
+          if (/队员|name|姓名|姓名|id|timestamp|date|time|url|link|video|image|备注|notes/i.test(k)) return;
           if (totalKey && k === totalKey) return; 
-          // Exclude Timestamp/Date/Url/Link columns explicitly to prevent parsing dates as distance
-          if (/timestamp|date|time|url|link|video|image/i.test(k)) return;
 
           const val = parseFloat(row[k]);
           if (!isNaN(val) && val > 0) {
-              frequency++; 
               calcSum += val;
+              // CRITICAL FIX: Only increment frequency if the column is a Daily column
+              if (isDailyColumn(k)) {
+                  frequency++;
+              }
           }
       });
 
-      if (!totalKey) {
+      // Use sum as fallback if no total key or distance is 0
+      if (!totalKey || distance === 0) {
           distance = calcSum;
       }
 

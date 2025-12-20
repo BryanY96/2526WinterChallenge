@@ -122,13 +122,10 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({ currentWeekRunne
           const hour = estDate.getHours(); // 0-23
           
           // --- RULES ---
-          // 1. Temporary Test Window: Friday 6 PM EST onwards (Friday 18:00+ or Saturday)
-          const isTestWindow = (day === 5 && hour >= 18) || (day === 6);
-
           // 2. Official Window: Sunday 8 PM EST to Monday 12 AM EST (Sunday 20:00 - 23:59)
           const isOfficialWindow = (day === 0 && hour >= 20);
 
-          const isOpen = isTestWindow || isOfficialWindow;
+          const isOpen = isOfficialWindow;
 
           if (isOpen) {
               setIsUnlocked(true);

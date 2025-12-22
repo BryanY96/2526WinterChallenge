@@ -182,9 +182,9 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({ currentWeekRunne
 
     setIsDrawing(true);
     
-    // Animation Sequence
+    // Animation Sequence - Extended duration for better suspense
     let shuffleCount = 0;
-    const maxShuffles = 15;
+    const maxShuffles = 30; // Increased from 15 to 30 for longer animation (3 seconds total)
     
     const shuffleInterval = setInterval(() => {
         shuffleCount++;

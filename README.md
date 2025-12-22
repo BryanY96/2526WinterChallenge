@@ -1,7 +1,3 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
-
 # 🏃‍♂️ 跑向春天 - Winter Challenge 2026
 
 一个冬季训练挑战追踪应用，用于追踪团队从华盛顿DC到中国漠河的跑步进度（目标10,000公里）。

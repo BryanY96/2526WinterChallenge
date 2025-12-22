@@ -107,12 +107,10 @@ export default function App() {
           if (totalKey && k === totalKey) return; 
 
           const val = parseFloat(row[k]);
-          if (!isNaN(val) && val > 0) {
+          if (!isNaN(val) && val > 0 && isDailyColumn(k)) {
+              // 只累加 Mon-Sun / 日期列，忽略其它数值（例如 converter 区域的 mi / km）
               calcSum += val;
-              // CRITICAL FIX: Only increment frequency if the column is a Daily column
-              if (isDailyColumn(k)) {
-                  frequency++;
-              }
+              frequency++;
           }
       });
 

@@ -111,7 +111,21 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({ currentWeekRunne
           return;
       }
 
-      // Check EST Time
+      // --- 1) 优先从 localStorage 读取已经抽出的结果，保证整周都固定 ---
+      const stored = localStorage.getItem(`lucky_result_${weekId}`);
+      if (stored) {
+          try {
+              const parsed = JSON.parse(stored) as { winners?: string[]; task?: string };
+              if (Array.isArray(parsed.winners) && parsed.winners.length === 3 && typeof parsed.task === 'string') {
+                  setWinners(parsed.winners);
+                  setAssignedTask(parsed.task);
+              }
+          } catch {
+              // ignore parse error and fall back to deterministic logic below
+          }
+      }
+
+      // 2) Check EST Time (只控制是否可以“抽奖按钮”，不影响结果显示)
       const checkTime = () => {
           // Create date object for EST
           const now = new Date();
@@ -138,16 +152,19 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({ currentWeekRunne
 
       checkTime();
       const timer = setInterval(checkTime, 60000); // Check every minute
-      
-      // Check if already "drawn" locally for animation purposes
+
+      // 3) 兼容旧数据：如果之前只存了 seen_draw 标记，但没有存具体 winners，则用确定性算法补一次并落库
       const hasSeen = localStorage.getItem(`seen_draw_${weekId}`);
-      if (hasSeen) {
-          // Re-calculate results to ensure consistency
-          // Now safe to call because isPoolLoading is false
+      const hasStoredResult = !!stored;
+      if (hasSeen && !hasStoredResult) {
           const result = performDeterministicDraw();
           if (result) {
-            setWinners(result.winners);
-            setAssignedTask(result.task);
+              setWinners(result.winners);
+              setAssignedTask(result.task);
+              localStorage.setItem(
+                  `lucky_result_${weekId}`,
+                  JSON.stringify({ winners: result.winners, task: result.task })
+              );
           }
       }
 
@@ -187,6 +204,11 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({ currentWeekRunne
             setIsDrawing(false);
             // Save state so we don't animate again this week
             localStorage.setItem(`seen_draw_${weekId}`, "true");
+            // Persist concrete winners & task so该周内任何时间刷新都保持一致
+            localStorage.setItem(
+                `lucky_result_${weekId}`,
+                JSON.stringify({ winners: result.winners, task: result.task })
+            );
         }
     }, 100);
   };

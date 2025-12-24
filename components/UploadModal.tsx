@@ -81,7 +81,9 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                             console.log('Upload Success:', result.info);
                             const path = result.info.path; 
                             const resType = result.info.resource_type || 'video';
-                            const finalUrl = `https://res.cloudinary.com/${cloudName}/${resType}/upload/f_auto,q_auto,w_400,c_fill,e_accelerate:200,ac_none/${path}`;
+                            // Force MP4 format for WeChat browser compatibility
+                            // Removed e_accelerate as it may cause issues in some browsers
+                            const finalUrl = `https://res.cloudinary.com/${cloudName}/${resType}/upload/f_mp4,q_auto,w_400,c_fill/${path}`;
                             
                             // CRITICAL FIX: Use nameRef.current to get the latest name value inside this callback
                             handleGoogleSheetSubmit(nameRef.current, finalUrl);

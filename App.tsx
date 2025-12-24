@@ -28,7 +28,11 @@ export interface RunnerData {
   bonusDistance?: number;
   streakCount?: number;
   hasStreak?: boolean; 
-  isPerfect?: boolean; 
+  isPerfect?: boolean;
+  // Daily records: key is day column name (e.g., "Mon", "Tue", "周一"), value is distance in km
+  dailyRecords?: Record<string, number>;
+  // Week ID for this data (e.g., "W1", "W2")
+  weekId?: string;
 }
 
 // Helper: Generate display label for a week key (e.g., "W1" -> "W1 (12/15-12/21)")
@@ -76,7 +80,7 @@ export default function App() {
   };
 
   // Improved row analysis logic
-  const analyzeRow = (row: any): { distance: number, frequency: number } => {
+  const analyzeRow = (row: any): { distance: number, frequency: number, dailyRecords: Record<string, number> } => {
       const keys = Object.keys(row);
       
       // 1. Identify the primary Total column
@@ -96,6 +100,7 @@ export default function App() {
       let distance = 0;
       let frequency = 0;
       let calcSum = 0;
+      const dailyRecords: Record<string, number> = {};
 
       if (totalKey) {
           distance = parseFloat(row[totalKey]) || 0;
@@ -107,10 +112,14 @@ export default function App() {
           if (totalKey && k === totalKey) return; 
 
           const val = parseFloat(row[k]);
-          if (!isNaN(val) && val > 0 && isDailyColumn(k)) {
-              // 只累加 Mon-Sun / 日期列，忽略其它数值（例如 converter 区域的 mi / km）
-              calcSum += val;
-              frequency++;
+          if (!isNaN(val) && isDailyColumn(k)) {
+              // Store daily record (including 0 values)
+              dailyRecords[k] = val;
+              if (val > 0) {
+                  // 只累加 Mon-Sun / 日期列，忽略其它数值（例如 converter 区域的 mi / km）
+                  calcSum += val;
+                  frequency++;
+              }
           }
       });
 
@@ -119,7 +128,7 @@ export default function App() {
           distance = calcSum;
       }
 
-      return { distance, frequency };
+      return { distance, frequency, dailyRecords };
   };
 
   const processSheetsData = (sheetsMap: Record<string, any[]>) => {
@@ -157,7 +166,7 @@ export default function App() {
             if (!name) return;
             
             runnerNamesSet.add(name);
-            const { distance: rawDistance, frequency } = analyzeRow(row);
+            const { distance: rawDistance, frequency, dailyRecords } = analyzeRow(row);
             const hasWeeklyStreak = frequency >= 5;
 
             // Apply 1.2x Bonus if they have a streak
@@ -171,7 +180,9 @@ export default function App() {
                     distance: finalDistance,
                     rawDistance: rawDistance,
                     bonusDistance: bonusDistance,
-                    hasStreak: hasWeeklyStreak
+                    hasStreak: hasWeeklyStreak,
+                    dailyRecords: dailyRecords,
+                    weekId: sheetName
                 });
             }
 
@@ -186,7 +197,8 @@ export default function App() {
         periodRunners.sort((a, b) => b.distance - a.distance);
         calculatedPeriods.push({
             label: getWeekLabel(sheetName),
-            runners: periodRunners
+            runners: periodRunners,
+            weekId: sheetName
         });
 
         // Current Week Stats Calculation
@@ -208,7 +220,8 @@ export default function App() {
 
     calculatedPeriods.unshift({
         label: 'Total Distance',
-        runners: totalRunners
+        runners: totalRunners,
+        weekId: undefined // Total view has no weekId
     });
 
     // Process Gallery Sheet if available

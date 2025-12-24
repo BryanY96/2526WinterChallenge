@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { Trophy, Medal, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Crown, Flame, Zap } from 'lucide-react';
 import { RunnerData } from '../App';
+import { RunnerDetailModal } from './RunnerDetailModal';
 
 export interface Period {
     label: string;
     runners: RunnerData[];
+    weekId?: string; // Week identifier (e.g., "W1", "W2")
 }
 
 interface LeaderboardProps {
@@ -14,6 +16,8 @@ interface LeaderboardProps {
 export const Leaderboard: React.FC<LeaderboardProps> = ({ periods }) => {
   const [showAll, setShowAll] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [selectedRunner, setSelectedRunner] = useState<RunnerData | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   if (!periods || periods.length === 0) {
       return (
@@ -41,6 +45,16 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ periods }) => {
         setCurrentIndex(prev => prev - 1);
         setShowAll(false);
     }
+  };
+
+  const handleRunnerClick = (runner: RunnerData) => {
+    setSelectedRunner(runner);
+    setIsModalOpen(true);
+  };
+
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+    setSelectedRunner(null);
   };
 
   return (
@@ -96,7 +110,11 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ periods }) => {
                             const isElite = streakCount >= 7;
 
                             return (
-                                <tr key={`${runner.name}-${index}`} className="hover:bg-slate-700/30 transition-colors animate-fadeIn">
+                                <tr 
+                                    key={`${runner.name}-${index}`} 
+                                    className="hover:bg-slate-700/30 transition-colors animate-fadeIn cursor-pointer"
+                                    onClick={() => handleRunnerClick(runner)}
+                                >
                                     <td className="px-4 py-3">
                                         {rank === 1 && <Medal size={20} className="text-yellow-400 drop-shadow-sm" />}
                                         {rank === 2 && <Medal size={20} className="text-slate-400 drop-shadow-sm" />}
@@ -191,6 +209,14 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ periods }) => {
                 </button>
             </div>
         )}
+        
+        {/* Runner Detail Modal */}
+        <RunnerDetailModal
+            runner={selectedRunner}
+            periods={periods}
+            isOpen={isModalOpen}
+            onClose={handleCloseModal}
+        />
     </section>
   );
 };

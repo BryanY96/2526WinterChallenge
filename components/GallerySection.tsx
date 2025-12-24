@@ -30,9 +30,30 @@ const MediaItem: React.FC<{ item: GalleryItem, index: number, className?: string
     const [hasError, setHasError] = useState(false);
     const [errorMessage, setErrorMessage] = useState<string>('');
     const videoRef = useRef<HTMLVideoElement>(null);
+    const loadTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     
     // Auto-play for non-WeChat browsers, manual play for WeChat
     const shouldAutoPlay = !isWeChat;
+    
+    // Set loading timeout (10 seconds for WeChat, 5 seconds for others)
+    React.useEffect(() => {
+        if (isVideo && isLoading) {
+            loadTimeoutRef.current = setTimeout(() => {
+                if (isLoading && !hasError) {
+                    console.warn('Video load timeout for:', item.url);
+                    setIsLoading(false);
+                    setHasError(true);
+                    setErrorMessage('视频加载超时，可能无法在微信中播放');
+                }
+            }, isWeChat ? 10000 : 5000);
+        }
+        
+        return () => {
+            if (loadTimeoutRef.current) {
+                clearTimeout(loadTimeoutRef.current);
+            }
+        };
+    }, [isVideo, isLoading, hasError, isWeChat, item.url]);
     
     // Ensure MP4 format for WeChat compatibility
     // Remove any problematic transformations
@@ -57,7 +78,7 @@ const MediaItem: React.FC<{ item: GalleryItem, index: number, className?: string
         ? videoUrl.replace('/upload/', '/upload/w_400,h_500,c_fill,f_jpg,q_auto/').replace(/f_mp4[^\/]*/g, '')
         : undefined;
 
-    const handleVideoClick = () => {
+    const handleVideoClick = async () => {
         if (!videoRef.current) return;
         
         if (hasError) {
@@ -66,6 +87,14 @@ const MediaItem: React.FC<{ item: GalleryItem, index: number, className?: string
             setErrorMessage('');
             setIsLoading(true);
             videoRef.current.load();
+            // Wait a bit then try to play
+            setTimeout(() => {
+                if (videoRef.current) {
+                    videoRef.current.play().catch(err => {
+                        console.error('Video play error after reload:', err);
+                    });
+                }
+            }, 500);
             return;
         }
         
@@ -73,23 +102,70 @@ const MediaItem: React.FC<{ item: GalleryItem, index: number, className?: string
             videoRef.current.pause();
             setIsPlaying(false);
         } else {
-            videoRef.current.play().catch(err => {
-                console.error('Video play error:', err);
-                setHasError(true);
-                setErrorMessage('无法播放视频，请检查网络连接');
-            });
-            setIsPlaying(true);
+            // In WeChat, video might not be loaded yet (preload="none")
+            // So we need to ensure it loads first
+            if (isWeChat && videoRef.current.readyState < 2) {
+                // Video not loaded yet, start loading
+                setIsLoading(true);
+                videoRef.current.load();
+                
+                // Wait for video to be ready, then play
+                const tryPlay = () => {
+                    if (videoRef.current) {
+                        if (videoRef.current.readyState >= 2) {
+                            // Video is loaded, try to play
+                            videoRef.current.play()
+                                .then(() => {
+                                    setIsPlaying(true);
+                                    setIsLoading(false);
+                                })
+                                .catch(err => {
+                                    console.error('Video play error:', err);
+                                    setIsLoading(false);
+                                    setHasError(true);
+                                    setErrorMessage('无法播放视频，请检查网络连接或尝试在浏览器中打开');
+                                });
+                        } else {
+                            // Still loading, wait a bit more
+                            setTimeout(tryPlay, 200);
+                        }
+                    }
+                };
+                
+                // Start trying to play after a short delay
+                setTimeout(tryPlay, 300);
+            } else {
+                // Video is already loaded or not WeChat, play directly
+                videoRef.current.play()
+                    .then(() => {
+                        setIsPlaying(true);
+                    })
+                    .catch(err => {
+                        console.error('Video play error:', err);
+                        setHasError(true);
+                        setErrorMessage('无法播放视频，请检查网络连接');
+                    });
+            }
         }
     };
 
     const handleVideoLoadStart = () => {
         setIsLoading(true);
         setHasError(false);
+        // Clear any existing timeout
+        if (loadTimeoutRef.current) {
+            clearTimeout(loadTimeoutRef.current);
+        }
     };
 
     const handleVideoCanPlay = () => {
         setIsLoading(false);
         setHasError(false);
+        // Clear timeout on successful load
+        if (loadTimeoutRef.current) {
+            clearTimeout(loadTimeoutRef.current);
+            loadTimeoutRef.current = null;
+        }
         
         // Auto-play for non-WeChat browsers
         if (shouldAutoPlay && videoRef.current && !isPlaying) {
@@ -99,11 +175,33 @@ const MediaItem: React.FC<{ item: GalleryItem, index: number, className?: string
             });
         }
     };
+    
+    const handleVideoLoadedData = () => {
+        // Video data loaded, but may not be ready to play yet
+        // This helps detect if video is actually loading
+        if (loadTimeoutRef.current) {
+            clearTimeout(loadTimeoutRef.current);
+            // Give it more time for canPlay event
+            loadTimeoutRef.current = setTimeout(() => {
+                if (isLoading && !hasError) {
+                    setIsLoading(false);
+                    // Don't set error, just stop loading indicator
+                    // Video might still work on click
+                }
+            }, 3000);
+        }
+    };
 
     const handleVideoError = (e: React.SyntheticEvent<HTMLVideoElement, Event>) => {
         console.error('Video error:', e);
         setIsLoading(false);
         setHasError(true);
+        // Clear timeout on error
+        if (loadTimeoutRef.current) {
+            clearTimeout(loadTimeoutRef.current);
+            loadTimeoutRef.current = null;
+        }
+        
         const video = e.currentTarget;
         const error = video.error;
         if (error) {
@@ -118,7 +216,7 @@ const MediaItem: React.FC<{ item: GalleryItem, index: number, className?: string
                     setErrorMessage('视频格式不支持');
                     break;
                 case error.MEDIA_ERR_SRC_NOT_SUPPORTED:
-                    setErrorMessage('视频源不支持');
+                    setErrorMessage('视频源不支持（微信可能无法访问此视频）');
                     break;
                 default:
                     setErrorMessage('视频加载失败');
@@ -153,20 +251,24 @@ const MediaItem: React.FC<{ item: GalleryItem, index: number, className?: string
                         muted
                         playsInline
                         controls={false}
-                        preload="metadata"
+                        preload={isWeChat ? "none" : "metadata"}
                         autoPlay={shouldAutoPlay}
                         onClick={handleVideoClick}
                         onLoadStart={handleVideoLoadStart}
+                        onLoadedData={handleVideoLoadedData}
                         onCanPlay={handleVideoCanPlay}
                         onPlay={() => setIsPlaying(true)}
                         onPause={() => setIsPlaying(false)}
                         onError={handleVideoError}
                     />
                     
-                    {/* Loading indicator */}
+                    {/* Loading indicator - show when actively loading */}
                     {isLoading && !hasError && (
-                        <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-                            <div className="text-white text-sm">加载中...</div>
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/60 z-20">
+                            <div className="text-center">
+                                <div className="text-white text-sm mb-1">加载中...</div>
+                                <div className="text-white text-xs opacity-70">请稍候</div>
+                            </div>
                         </div>
                     )}
                     

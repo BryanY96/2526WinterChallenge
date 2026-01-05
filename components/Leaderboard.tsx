@@ -30,6 +30,9 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ periods }) => {
   const currentPeriod = periods[currentIndex];
   const isTotalView = currentIndex === 0;
   
+  // Calculate total distance (sum of all runners' distances for the current period)
+  const totalDistance = currentPeriod.runners.reduce((sum, runner) => sum + runner.distance, 0);
+  
   const displayCount = showAll ? currentPeriod.runners.length : 5;
   const displayedRunners = currentPeriod.runners.slice(0, displayCount);
 
@@ -65,31 +68,41 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ periods }) => {
                 <h3 className="font-bold text-lg text-red-100">光荣榜</h3>
             </div>
             
-            <div className="flex items-center gap-2 bg-slate-900/50 rounded-lg p-1">
-                <button 
-                    onClick={goPrev}
-                    disabled={currentIndex === 0}
-                    className={`p-1 rounded hover:bg-slate-700 transition-colors ${currentIndex === 0 ? 'text-slate-600 cursor-not-allowed' : 'text-slate-300'}`}
-                >
-                    <ChevronLeft size={18} />
-                </button>
+            <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 bg-slate-900/50 rounded-lg p-1">
+                    <button 
+                        onClick={goPrev}
+                        disabled={currentIndex === 0}
+                        className={`p-1 rounded hover:bg-slate-700 transition-colors ${currentIndex === 0 ? 'text-slate-600 cursor-not-allowed' : 'text-slate-300'}`}
+                    >
+                        <ChevronLeft size={18} />
+                    </button>
+                    
+                    <div className="px-2 min-w-[120px] text-center">
+                        <span className="text-xs font-mono text-amber-500 block leading-tight">
+                            {isTotalView ? "TOTAL" : "WEEKLY"}
+                        </span>
+                        <span className="text-sm font-bold text-slate-200 block leading-tight truncate max-w-[140px]">
+                            {currentPeriod.label}
+                        </span>
+                    </div>
+
+                    <button 
+                        onClick={goNext}
+                        disabled={currentIndex === periods.length - 1}
+                        className={`p-1 rounded hover:bg-slate-700 transition-colors ${currentIndex === periods.length - 1 ? 'text-slate-600 cursor-not-allowed' : 'text-slate-300'}`}
+                    >
+                        <ChevronRight size={18} />
+                    </button>
+                </div>
                 
-                <div className="px-2 min-w-[120px] text-center">
-                    <span className="text-xs font-mono text-amber-500 block leading-tight">
-                        {isTotalView ? "TOTAL" : "WEEKLY"}
-                    </span>
-                    <span className="text-sm font-bold text-slate-200 block leading-tight truncate max-w-[140px]">
-                        {currentPeriod.label}
+                {/* Total Distance Display - Always reserve space to prevent layout shift */}
+                <div className={`flex items-center gap-1 bg-amber-500/10 border border-amber-500/20 rounded px-1.5 py-0.5 transition-opacity ${totalDistance > 0 ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} style={{ minWidth: totalDistance > 0 ? 'auto' : '100px' }}>
+                    <span className="text-[10px] text-amber-400 font-medium leading-tight">{isTotalView ? 'Total:' : 'Week:'}</span>
+                    <span className="text-xs font-bold text-amber-300 leading-tight">
+                        {totalDistance > 0 ? `${totalDistance.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} km` : '0.0 km'}
                     </span>
                 </div>
-
-                <button 
-                    onClick={goNext}
-                    disabled={currentIndex === periods.length - 1}
-                    className={`p-1 rounded hover:bg-slate-700 transition-colors ${currentIndex === periods.length - 1 ? 'text-slate-600 cursor-not-allowed' : 'text-slate-300'}`}
-                >
-                    <ChevronRight size={18} />
-                </button>
             </div>
         </div>
         

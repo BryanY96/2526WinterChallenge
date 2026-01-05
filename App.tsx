@@ -15,6 +15,9 @@ const SPREADSHEET_ID = '1kLWZSg1MfTdUf8nc38n5HYv4N-xh4Nz__N-96_dSLtk';
 export const CLOUD_NAME = 'dieibdhtx';
 export const UPLOAD_PRESET = 'ChallengeVideos'; 
 export const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzoF4WKL_tT3uy1V6XIn7xObs7-cxCmsw5IJFZe0_R0-LFqCkpTnCyTK95nSneEtMTk/exec';
+// Lucky Draw Results Sheet Configuration
+export const LUCKY_DRAW_SHEET_NAME = 'Lucky Results'; // Sheet name for storing draw results
+export const LUCKY_DRAW_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzo7tTaR8KMKXN8ruY44wZjp2lMecemYrqIfvwvuv_z2rLgf-IRZuyUslm06O-zIC7f/exec'; // Can use same script or different one
 
 // Updated Goal: 10,000km to Mohe (Arctic City)
 const GOAL_KM = 10000;
@@ -441,6 +444,9 @@ export default function App() {
             currentWeekRunners={currentWeekRunners} 
             weekId={currentWeekId}
             onUploadClick={() => setIsUploadModalOpen(true)}
+            spreadsheetId={SPREADSHEET_ID}
+            luckyDrawScriptUrl={LUCKY_DRAW_SCRIPT_URL}
+            luckyDrawSheetName={LUCKY_DRAW_SHEET_NAME}
         />
 
         <GallerySection items={galleryItems} />

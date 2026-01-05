@@ -5,6 +5,9 @@ interface LuckyChallengeProps {
   currentWeekRunners: string[];
   weekId: string; // e.g., "W1", "W2"
   onUploadClick: () => void;
+  spreadsheetId?: string;
+  luckyDrawScriptUrl?: string;
+  luckyDrawSheetName?: string;
 }
 
 // Pseudo-random number generator seeded string (Simple Linear Congruential Generator)
@@ -22,15 +25,171 @@ const getSeedFromString = (str: string) => {
     return hash;
 };
 
-export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({ currentWeekRunners, weekId, onUploadClick }) => {
+export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({ 
+  currentWeekRunners, 
+  weekId, 
+  onUploadClick,
+  spreadsheetId,
+  luckyDrawScriptUrl,
+  luckyDrawSheetName = 'Lucky Results'
+}) => {
   const [winners, setWinners] = useState<string[]>([]);
   const [assignedTask, setAssignedTask] = useState<string>("");
   const [challengePool, setChallengePool] = useState<string[]>([]);
+  const [usedTasks, setUsedTasks] = useState<string[]>([]); // Track used challenges
   const [isPoolLoading, setIsPoolLoading] = useState(true);
   
   const [isDrawing, setIsDrawing] = useState(false);
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [statusMessage, setStatusMessage] = useState("Loading...");
+  
+  // Helper: Save draw result to Google Sheets
+  const saveDrawResultToSheet = async (weekId: string, winners: string[], task: string) => {
+    if (!luckyDrawScriptUrl) {
+      console.warn("Lucky Draw Script URL not configured, skipping save to sheet");
+      return;
+    }
+    
+    try {
+      const payload = {
+        action: 'saveDrawResult',
+        weekId: weekId,
+        winners: winners,
+        task: task
+      };
+      
+      await fetch(luckyDrawScriptUrl, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 
+          'Content-Type': 'text/plain' 
+        },
+        body: JSON.stringify(payload)
+      });
+      
+      console.log('Draw result saved to sheet:', { weekId, winners, task });
+    } catch (error) {
+      console.error('Failed to save draw result to sheet:', error);
+      // Don't show error to user, just log it
+    }
+  };
+  
+  // Helper: Load previous draw results from Google Sheets
+  const loadPreviousDrawResults = async (weekId: string) => {
+    if (!luckyDrawScriptUrl || !weekId) return null;
+    
+    try {
+      // Try to load previous week's result (for display before current week draw)
+      const prevWeekMatch = weekId.match(/^W(\d+)$/i);
+      if (!prevWeekMatch) return null;
+      
+      const currentWeekNum = parseInt(prevWeekMatch[1]);
+      if (currentWeekNum <= 1) return null; // No previous week for W1
+      
+      const prevWeekId = `W${currentWeekNum - 1}`;
+      
+      // Try fetching via Google Apps Script API
+      const url = `${luckyDrawScriptUrl}?weekId=${encodeURIComponent(prevWeekId)}`;
+      const response = await fetch(url, { mode: 'cors' });
+      
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success && result.data) {
+          return result.data;
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to load previous draw results:', error);
+      // Fallback: try direct CSV fetch if spreadsheet ID is available
+      if (spreadsheetId && luckyDrawSheetName) {
+        try {
+          const csvUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(luckyDrawSheetName)}`;
+          const csvResponse = await fetch(csvUrl);
+          if (csvResponse.ok) {
+            const csvText = await csvResponse.text();
+            // Parse CSV and find previous week's result
+            const lines = csvText.split('\n').filter(line => line.trim());
+            if (lines.length > 1) {
+              const headers = lines[0].split(',');
+              const weekIdIndex = headers.findIndex(h => /week|id/i.test(h));
+              
+              if (weekIdIndex >= 0) {
+                // Find previous week
+                const prevWeekMatch = weekId.match(/^W(\d+)$/i);
+                if (prevWeekMatch) {
+                  const currentWeekNum = parseInt(prevWeekMatch[1]);
+                  if (currentWeekNum > 1) {
+                    const prevWeekId = `W${currentWeekNum - 1}`;
+                    
+                    for (let i = 1; i < lines.length; i++) {
+                      const row = lines[i].split(',');
+                      const rowWeekId = row[weekIdIndex]?.trim().replace(/"/g, ''); // Remove quotes if present
+                      const normalizedPrevWeekId = prevWeekId.replace(/^W/i, ''); // Normalize "W2" -> "2"
+                      // Match both "W2" format and "2" format
+                      if (rowWeekId && (
+                          rowWeekId === prevWeekId ||
+                          rowWeekId === normalizedPrevWeekId ||
+                          rowWeekId.replace(/^W/i, '') === normalizedPrevWeekId
+                      )) {
+                        // Found previous week's result
+                        return {
+                          weekId: prevWeekId,
+                          winners: [
+                            row[1]?.trim().replace(/"/g, '') || '', 
+                            row[2]?.trim().replace(/"/g, '') || '', 
+                            row[3]?.trim().replace(/"/g, '') || ''
+                          ],
+                          task: row[4]?.trim().replace(/"/g, '') || ''
+                        };
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        } catch (csvError) {
+          console.warn('Failed to load via CSV fallback:', csvError);
+        }
+      }
+    }
+    
+    return null;
+  };
+  
+  // Helper: Load all used tasks from Google Sheets
+  const loadUsedTasks = async () => {
+    if (!spreadsheetId || !luckyDrawSheetName) return [];
+    
+    try {
+      const csvUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(luckyDrawSheetName)}`;
+      const csvResponse = await fetch(csvUrl);
+      if (csvResponse.ok) {
+        const csvText = await csvResponse.text();
+        const lines = csvText.split('\n').filter(line => line.trim());
+        if (lines.length > 1) {
+          const headers = lines[0].split(',');
+          const taskIndex = headers.findIndex(h => /task|项目|challenge/i.test(h));
+          
+          if (taskIndex >= 0) {
+            const used: string[] = [];
+            for (let i = 1; i < lines.length; i++) {
+              const row = lines[i].split(',');
+              const task = row[taskIndex]?.trim().replace(/"/g, ''); // Remove quotes if present
+              if (task && !used.includes(task)) {
+                used.push(task);
+              }
+            }
+            return used;
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to load used tasks:', error);
+    }
+    
+    return [];
+  };
 
   // 1. Fetch Challenge Pool from text file
   useEffect(() => {
@@ -63,25 +222,39 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({ currentWeekRunne
       };
 
       loadChallenges();
-  }, []);
+      
+      // Load used tasks from Google Sheets
+      if (spreadsheetId && luckyDrawSheetName) {
+        loadUsedTasks().then(used => {
+          setUsedTasks(used);
+        });
+      }
+  }, [spreadsheetId, luckyDrawSheetName]);
 
   // Deterministically pick winners and task based on weekId
-  // Now relies on challengePool state
+  // Now relies on challengePool state and excludes used tasks
   const performDeterministicDraw = () => {
     if (!currentWeekRunners || currentWeekRunners.length < 3) return null;
     if (challengePool.length === 0) return null;
 
-    // 1. Sort runners to ensure pool order is identical for everyone
+    // 1. Filter out used tasks
+    const availableTasks = challengePool.filter(task => !usedTasks.includes(task));
+    // If all tasks are used, use all tasks as fallback (could happen if pool is smaller than weeks)
+    if (availableTasks.length === 0) {
+      console.warn("All challenges have been used, will use all tasks from pool");
+    }
+
+    // 2. Sort runners to ensure pool order is identical for everyone
     const sortedRunners = [...currentWeekRunners].sort();
     
-    // 2. Generate Seed from WeekID (e.g., "W2")
+    // 3. Generate Seed from WeekID (e.g., "W2")
     // Use the current year to avoid collisions next year if format stays same
     const baseSeed = getSeedFromString(`${weekId}-2025`); 
 
     const resultWinners: string[] = [];
     const usedIndices = new Set<number>();
     
-    // 3. Pick 3 distinct winners
+    // 4. Pick 3 distinct winners
     let rngStep = 0;
     while(resultWinners.length < 3) {
         const rand = seededRandom(baseSeed + rngStep);
@@ -94,13 +267,14 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({ currentWeekRunne
         rngStep++;
     }
 
-    // 4. Pick 1 Task from the loaded pool
+    // 5. Pick 1 Task from available tasks (excluding used ones)
+    const tasksToUse = availableTasks.length > 0 ? availableTasks : challengePool;
     const taskRand = seededRandom(baseSeed + 999);
-    const taskIdx = Math.floor(taskRand * challengePool.length);
+    const taskIdx = Math.floor(taskRand * tasksToUse.length);
     
     return {
         winners: resultWinners,
-        task: challengePool[taskIdx]
+        task: tasksToUse[taskIdx]
     };
   };
 
@@ -111,18 +285,192 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({ currentWeekRunne
           return;
       }
 
-      // --- 1) 优先从 localStorage 读取已经抽出的结果，保证整周都固定 ---
-      const stored = localStorage.getItem(`lucky_result_${weekId}`);
-      if (stored) {
-          try {
-              const parsed = JSON.parse(stored) as { winners?: string[]; task?: string };
-              if (Array.isArray(parsed.winners) && parsed.winners.length === 3 && typeof parsed.task === 'string') {
-                  setWinners(parsed.winners);
-                  setAssignedTask(parsed.task);
-              }
-          } catch {
-              // ignore parse error and fall back to deterministic logic below
+      console.log('[LuckyChallenge] Starting to load results for weekId:', weekId);
+      console.log('[LuckyChallenge] Config:', { spreadsheetId, luckyDrawScriptUrl, luckyDrawSheetName });
+
+      // Check if we're in the draw window (Sunday 8PM EST or later)
+      const now = new Date();
+      const estTimeStr = now.toLocaleString("en-US", { timeZone: "America/New_York" });
+      const estDate = new Date(estTimeStr);
+      const day = estDate.getDay(); // 0 = Sunday, 1 = Monday, ...
+      const hour = estDate.getHours(); // 0-23
+      const isInDrawWindow = (day === 0 && hour >= 20); // Sunday 8PM EST or later
+      console.log('[LuckyChallenge] Time check - Day:', day, 'Hour:', hour, 'IsInDrawWindow:', isInDrawWindow);
+
+      // Load current week result (priority: localStorage > Google Sheets)
+      // Only load current week if we're in the draw window (Sunday 8PM or later)
+      const loadCurrentWeekResult = async () => {
+          // If not in draw window, don't try to load current week
+          if (!isInDrawWindow) {
+              console.log('[LuckyChallenge] Not in draw window, skipping current week load');
+              return false;
           }
+          console.log('[LuckyChallenge] loadCurrentWeekResult called for weekId:', weekId);
+          // --- 1) 优先从 localStorage 读取已经抽出的结果，保证整周都固定 ---
+          const stored = localStorage.getItem(`lucky_result_${weekId}`);
+          if (stored) {
+              try {
+                  const parsed = JSON.parse(stored) as { winners?: string[]; task?: string };
+                  if (Array.isArray(parsed.winners) && parsed.winners.length === 3 && typeof parsed.task === 'string') {
+                      console.log('[LuckyChallenge] ✅ Found result in localStorage:', parsed);
+                      setWinners(parsed.winners);
+                      setAssignedTask(parsed.task);
+                      return true; // Found in localStorage, no need to check Sheets
+                  } else {
+                      console.log('[LuckyChallenge] ⚠️ localStorage data format invalid:', parsed);
+                  }
+              } catch (error) {
+                  console.warn('[LuckyChallenge] ⚠️ Failed to parse localStorage data:', error);
+                  // ignore parse error and fall back to Google Sheets
+              }
+          } else {
+              console.log('[LuckyChallenge] No data in localStorage for weekId:', weekId);
+          }
+          
+          // --- 2) Try to load from Google Sheets (for current week) ---
+          if (luckyDrawScriptUrl && spreadsheetId) {
+              console.log('[LuckyChallenge] Attempting to load from API, URL:', `${luckyDrawScriptUrl}?weekId=${encodeURIComponent(weekId)}`);
+              try {
+                  // Try via API first
+                  const url = `${luckyDrawScriptUrl}?weekId=${encodeURIComponent(weekId)}`;
+                  const response = await fetch(url, { mode: 'cors' });
+                  console.log('[LuckyChallenge] API response status:', response.status, 'ok:', response.ok);
+                  if (response.ok) {
+                      const result = await response.json();
+                      console.log('[LuckyChallenge] API response data:', result);
+                      if (result.success && result.data) {
+                          setWinners(result.data.winners || []);
+                          setAssignedTask(result.data.task || '');
+                          // Also save to localStorage for consistency
+                          localStorage.setItem(`lucky_result_${weekId}`, JSON.stringify(result.data));
+                          console.log('[LuckyChallenge] ✅ Loaded current week result from API:', result.data);
+                          return true;
+                      } else {
+                          console.log('[LuckyChallenge] ⚠️ API returned but success=false or no data:', result);
+                      }
+                  } else {
+                      console.log('[LuckyChallenge] ⚠️ API response not ok, status:', response.status);
+                  }
+              } catch (error) {
+                  console.warn('[LuckyChallenge] ⚠️ Failed to load current week result from API:', error);
+                  // Fallback to CSV if available
+              }
+          } else {
+              console.log('[LuckyChallenge] ⚠️ API config missing, luckyDrawScriptUrl:', luckyDrawScriptUrl, 'spreadsheetId:', spreadsheetId);
+          }
+          
+          // --- 2b) Fallback: Try direct CSV fetch if API failed ---
+          if (spreadsheetId && luckyDrawSheetName) {
+              console.log('[LuckyChallenge] Attempting to load from CSV, sheet:', luckyDrawSheetName);
+              try {
+                  const csvUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(luckyDrawSheetName)}`;
+                  console.log('[LuckyChallenge] CSV URL:', csvUrl);
+                  const csvResponse = await fetch(csvUrl);
+                  console.log('[LuckyChallenge] CSV response status:', csvResponse.status, 'ok:', csvResponse.ok);
+                  if (csvResponse.ok) {
+                      const csvText = await csvResponse.text();
+                      console.log('[LuckyChallenge] CSV raw text (first 500 chars):', csvText.substring(0, 500));
+                      const lines = csvText.split('\n').filter(line => line.trim());
+                      console.log('[LuckyChallenge] CSV lines count:', lines.length);
+                      if (lines.length > 1) {
+                          const headers = lines[0].split(',');
+                          console.log('[LuckyChallenge] CSV headers:', headers);
+                          const weekIdIndex = headers.findIndex(h => /week|id/i.test(h));
+                          console.log('[LuckyChallenge] WeekId column index:', weekIdIndex);
+                          
+                          if (weekIdIndex >= 0) {
+                              // Find current week
+                              // Support both formats: "W3" and "3"
+                              const normalizedWeekId = weekId.replace(/^W/i, ''); // Normalize "W3" -> "3" for comparison
+                              console.log('[LuckyChallenge] Searching for weekId:', weekId, 'or', normalizedWeekId, 'in CSV data...');
+                              for (let i = 1; i < lines.length; i++) {
+                                  const row = lines[i].split(',');
+                                  const rowWeekId = row[weekIdIndex]?.trim().replace(/"/g, ''); // Remove quotes if present
+                                  console.log('[LuckyChallenge] Row', i, 'WeekId value:', rowWeekId);
+                                  // Match both "W3" format and "3" format
+                                  if (rowWeekId && (
+                                      rowWeekId === weekId || 
+                                      rowWeekId === normalizedWeekId ||
+                                      rowWeekId.replace(/^W/i, '') === normalizedWeekId
+                                  )) {
+                                      // Found current week's result
+                                      // Remove quotes from CSV values
+                                      const result = {
+                                          weekId: rowWeekId,
+                                          winners: [
+                                              row[1]?.trim().replace(/"/g, '') || '',
+                                              row[2]?.trim().replace(/"/g, '') || '',
+                                              row[3]?.trim().replace(/"/g, '') || ''
+                                          ],
+                                          task: row[4]?.trim().replace(/"/g, '') || ''
+                                      };
+                                      setWinners(result.winners);
+                                      setAssignedTask(result.task);
+                                      // Save to localStorage for consistency
+                                      localStorage.setItem(`lucky_result_${weekId}`, JSON.stringify(result));
+                                      console.log('[LuckyChallenge] ✅ Loaded current week result from CSV:', result);
+                                      return true;
+                                  }
+                              }
+                              console.log('[LuckyChallenge] ⚠️ WeekId', weekId, 'not found in CSV data');
+                          } else {
+                              console.log('[LuckyChallenge] ⚠️ WeekId column not found in CSV headers');
+                          }
+                      } else {
+                          console.log('[LuckyChallenge] ⚠️ CSV has no data rows (only headers or empty)');
+                      }
+                  } else {
+                      console.log('[LuckyChallenge] ⚠️ CSV response not ok, status:', csvResponse.status);
+                  }
+              } catch (csvError) {
+                  console.warn('[LuckyChallenge] ⚠️ Failed to load current week result from CSV:', csvError);
+              }
+          } else {
+              console.log('[LuckyChallenge] ⚠️ CSV config missing, spreadsheetId:', spreadsheetId, 'luckyDrawSheetName:', luckyDrawSheetName);
+          }
+          
+          return false; // No current week result found
+      };
+      
+      // Load results based on time window
+      if (isInDrawWindow) {
+          // In draw window: Try to load current week, if not found, show previous week
+          loadCurrentWeekResult().then(hasCurrentWeekResult => {
+              console.log('[LuckyChallenge] loadCurrentWeekResult finished, hasResult:', hasCurrentWeekResult);
+              if (!hasCurrentWeekResult) {
+                  console.log('[LuckyChallenge] No current week result, trying to load previous week...');
+                  // If no current week result, show previous week's result
+                  loadPreviousDrawResults(weekId).then(prevResult => {
+                      console.log('[LuckyChallenge] loadPreviousDrawResults result:', prevResult);
+                      if (prevResult && prevResult.winners && prevResult.winners.length === 3) {
+                          console.log('[LuckyChallenge] ✅ Loaded previous week result:', prevResult);
+                          setWinners(prevResult.winners);
+                          setAssignedTask(prevResult.task || '');
+                      } else {
+                          console.log('[LuckyChallenge] ⚠️ No previous week result found or invalid format');
+                      }
+                  }).catch(error => {
+                      console.error('[LuckyChallenge] ❌ Error loading previous week result:', error);
+                  });
+              }
+          }).catch(error => {
+              console.error('[LuckyChallenge] ❌ Error in loadCurrentWeekResult:', error);
+          });
+      } else {
+          // Not in draw window: Always show previous week's result
+          console.log('[LuckyChallenge] Not in draw window, loading previous week result...');
+          loadPreviousDrawResults(weekId).then(prevResult => {
+              console.log('[LuckyChallenge] loadPreviousDrawResults result:', prevResult);
+              if (prevResult && prevResult.winners && prevResult.winners.length === 3) {
+                  console.log('[LuckyChallenge] ✅ Loaded previous week result (before draw window):', prevResult);
+                  setWinners(prevResult.winners);
+                  setAssignedTask(prevResult.task || '');
+              } else {
+                  console.log('[LuckyChallenge] ⚠️ No previous week result found or invalid format');
+              }
+          }).catch(error => {
+              console.error('[LuckyChallenge] ❌ Error loading previous week result:', error);
+          });
       }
 
       // 2) Check EST Time (只控制是否可以“抽奖按钮”，不影响结果显示)
@@ -155,8 +503,9 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({ currentWeekRunne
 
       // 3) 兼容旧数据：如果之前只存了 seen_draw 标记，但没有存具体 winners，则用确定性算法补一次并落库
       const hasSeen = localStorage.getItem(`seen_draw_${weekId}`);
-      const hasStoredResult = !!stored;
-      if (hasSeen && !hasStoredResult) {
+      const storedResult = localStorage.getItem(`lucky_result_${weekId}`);
+      const hasStoredResult = !!storedResult;
+      if (hasSeen && !hasStoredResult && winners.length === 0) {
           const result = performDeterministicDraw();
           if (result) {
               setWinners(result.winners);
@@ -165,11 +514,13 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({ currentWeekRunne
                   `lucky_result_${weekId}`,
                   JSON.stringify({ winners: result.winners, task: result.task })
               );
+              // Also save to Google Sheets
+              saveDrawResultToSheet(weekId, result.winners, result.task);
           }
       }
 
       return () => clearInterval(timer);
-  }, [weekId, currentWeekRunners, isPoolLoading, challengePool]); // Add pool dependencies
+  }, [weekId, currentWeekRunners, isPoolLoading, challengePool, usedTasks, spreadsheetId, luckyDrawScriptUrl]); // Add dependencies
 
   const handleDraw = () => {
     if (isDrawing || !isUnlocked) return;
@@ -209,6 +560,10 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({ currentWeekRunne
                 `lucky_result_${weekId}`,
                 JSON.stringify({ winners: result.winners, task: result.task })
             );
+            // Save to Google Sheets
+            saveDrawResultToSheet(weekId, result.winners, result.task);
+            // Update used tasks list
+            setUsedTasks(prev => [...prev, result.task]);
         }
     }, 100);
   };

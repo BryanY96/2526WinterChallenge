@@ -82,8 +82,9 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                             const path = result.info.path; 
                             const resType = result.info.resource_type || 'video';
                             // Force MP4 format for WeChat browser compatibility
-                            // Removed e_accelerate as it may cause issues in some browsers
-                            const finalUrl = `https://res.cloudinary.com/${cloudName}/${resType}/upload/f_mp4,q_auto,w_400,c_fill/${path}`;
+                            // Use e_accelerate:200 to speed up video to 2x during upload (server-side processing)
+                            // This is better than client-side playbackRate as it creates a smaller file and works in all browsers
+                            const finalUrl = `https://res.cloudinary.com/${cloudName}/${resType}/upload/f_mp4,q_auto,w_400,c_fill,e_accelerate:200/${path}`;
                             
                             // CRITICAL FIX: Use nameRef.current to get the latest name value inside this callback
                             handleGoogleSheetSubmit(nameRef.current, finalUrl);

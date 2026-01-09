@@ -56,15 +56,13 @@ const MediaItem: React.FC<{ item: GalleryItem, index: number, className?: string
     }, [isVideo, isLoading, hasError, isWeChat, item.url]);
     
     // Ensure MP4 format for WeChat compatibility
-    // Remove any problematic transformations
     let videoUrl = item.url;
     if (isVideo) {
         // Force MP4 format
         if (videoUrl.includes('f_auto')) {
             videoUrl = videoUrl.replace('f_auto', 'f_mp4');
         }
-        // Remove e_accelerate which may cause issues
-        videoUrl = videoUrl.replace(/e_accelerate[^\/]*/g, '');
+        // Keep e_accelerate if present (for 2x speed videos)
         // Ensure we have f_mp4 if it's a video
         if (!videoUrl.includes('f_mp4') && !videoUrl.includes('.mp4')) {
             // Insert f_mp4 before the path

@@ -273,6 +273,7 @@ export default function App() {
     setDistanceThisWeek(currentWeekDist);
     
     // Set Lucky Challenge Data
+    console.log('[App] Setting Lucky Challenge Data - latestSheetName:', latestSheetName, 'runners count:', latestWeekRunnersList.length);
     setCurrentWeekId(latestSheetName);
     setCurrentWeekRunners(latestWeekRunnersList);
     

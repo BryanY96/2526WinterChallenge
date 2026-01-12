@@ -240,37 +240,95 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({
     return null;
   };
   
+  // Helper: Parse CSV row properly handling quoted fields with commas
+  const parseCSVRow = (line: string): string[] => {
+    const result: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      
+      if (char === '"') {
+        if (inQuotes && line[i + 1] === '"') {
+          // Escaped quote
+          current += '"';
+          i++; // Skip next quote
+        } else {
+          // Toggle quote state
+          inQuotes = !inQuotes;
+        }
+      } else if (char === ',' && !inQuotes) {
+        // Field separator
+        result.push(current.trim());
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    
+    // Add last field
+    result.push(current.trim());
+    return result;
+  };
+
   // Helper: Load all used tasks from Google Sheets
   const loadUsedTasks = async () => {
-    if (!spreadsheetId || !luckyDrawSheetName) return [];
+    if (!spreadsheetId || !luckyDrawSheetName) {
+      console.log('[LuckyChallenge] loadUsedTasks: Missing config');
+      return [];
+    }
     
     try {
       const csvUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(luckyDrawSheetName)}`;
+      console.log('[LuckyChallenge] Loading used tasks from:', csvUrl);
       const csvResponse = await fetch(csvUrl);
       if (csvResponse.ok) {
         const csvText = await csvResponse.text();
+        console.log('[LuckyChallenge] CSV text (first 500 chars):', csvText.substring(0, 500));
         const lines = csvText.split('\n').filter(line => line.trim());
+        console.log('[LuckyChallenge] CSV lines count:', lines.length);
+        
         if (lines.length > 1) {
-          const headers = lines[0].split(',');
+          // Parse header row properly
+          const headers = parseCSVRow(lines[0]);
+          console.log('[LuckyChallenge] CSV headers:', headers);
           const taskIndex = headers.findIndex(h => /task|项目|challenge/i.test(h));
+          console.log('[LuckyChallenge] Task column index:', taskIndex);
           
           if (taskIndex >= 0) {
             const used: string[] = [];
             for (let i = 1; i < lines.length; i++) {
-              const row = lines[i].split(',');
-              const task = row[taskIndex]?.trim().replace(/"/g, ''); // Remove quotes if present
-              if (task && !used.includes(task)) {
-                used.push(task);
+              const row = parseCSVRow(lines[i]);
+              if (row.length > taskIndex) {
+                // Remove quotes and trim
+                const task = row[taskIndex]?.replace(/^"|"$/g, '').trim();
+                if (task && task.length > 0) {
+                  // Normalize: remove extra spaces and ensure consistent format
+                  const normalizedTask = task.replace(/\s+/g, ' ').trim();
+                  if (!used.includes(normalizedTask)) {
+                    used.push(normalizedTask);
+                    console.log('[LuckyChallenge] Found used task:', normalizedTask);
+                  } else {
+                    console.log('[LuckyChallenge] Duplicate task skipped:', normalizedTask);
+                  }
+                }
               }
             }
+            console.log('[LuckyChallenge] ✅ Loaded used tasks:', used);
             return used;
+          } else {
+            console.warn('[LuckyChallenge] ⚠️ Task column not found in headers');
           }
         }
+      } else {
+        console.warn('[LuckyChallenge] ⚠️ CSV response not ok:', csvResponse.status);
       }
     } catch (error) {
-      console.warn('Failed to load used tasks:', error);
+      console.error('[LuckyChallenge] ❌ Failed to load used tasks:', error);
     }
     
+    console.log('[LuckyChallenge] ⚠️ Returning empty used tasks list');
     return [];
   };
 
@@ -320,11 +378,27 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({
     if (!currentWeekRunners || currentWeekRunners.length < 3) return null;
     if (challengePool.length === 0) return null;
 
-    // 1. Filter out used tasks
-    const availableTasks = challengePool.filter(task => !usedTasks.includes(task));
+    console.log('[LuckyChallenge] performRandomDraw - usedTasks:', usedTasks);
+    console.log('[LuckyChallenge] performRandomDraw - challengePool length:', challengePool.length);
+
+    // 1. Filter out used tasks (normalize both for comparison)
+    const availableTasks = challengePool.filter(task => {
+      const normalizedTask = task.replace(/\s+/g, ' ').trim();
+      const isUsed = usedTasks.some(used => {
+        const normalizedUsed = used.replace(/\s+/g, ' ').trim();
+        return normalizedTask === normalizedUsed;
+      });
+      if (isUsed) {
+        console.log('[LuckyChallenge] Filtering out used task:', normalizedTask);
+      }
+      return !isUsed;
+    });
+    
+    console.log('[LuckyChallenge] Available tasks after filtering:', availableTasks.length, 'out of', challengePool.length);
+    
     // If all tasks are used, use all tasks as fallback (could happen if pool is smaller than weeks)
     if (availableTasks.length === 0) {
-      console.warn("All challenges have been used, will use all tasks from pool");
+      console.warn('[LuckyChallenge] ⚠️ All challenges have been used, will use all tasks from pool');
     }
 
     // 2. Sort runners to ensure consistent order
@@ -666,8 +740,8 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({
       if (hasSeen && !hasStoredResult && winners.length === 0) {
           const result = performRandomDraw();
           if (result) {
-              setWinners(result.winners);
-              setAssignedTask(result.task);
+            setWinners(result.winners);
+            setAssignedTask(result.task);
               setHasDrawnThisWeek(true);
               localStorage.setItem(
                   `lucky_result_${effectiveWeekId}`,
@@ -740,7 +814,7 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({
           // Mark as drawn for this week - button will be disabled
           setHasDrawnThisWeek(true);
           
-          // Save state so we don't animate again this week
+            // Save state so we don't animate again this week
           localStorage.setItem(`seen_draw_${drawWeekId}`, "true");
           // Persist concrete winners & task so该周内任何时间刷新都保持一致
           localStorage.setItem(
@@ -807,20 +881,20 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({
                     <div className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-slate-700 text-slate-400 border border-slate-600 cursor-not-allowed">
                         {isPoolLoading ? <Loader2 size={18} className="animate-spin" /> : hasDrawnThisWeek ? <Lock size={18} /> : <Clock size={18} />}
                         <span>{hasDrawnThisWeek ? "Draw completed for this week. Next draw opens Sunday 8PM EST." : statusMessage}</span>
-                    </div>
-                ) : (
-                    <button 
-                        onClick={handleDraw}
+                            </div>
+                        ) : (
+                            <button 
+                                onClick={handleDraw}
                         disabled={isDrawing || hasDrawnThisWeek}
-                        className={`
-                            px-8 py-3 rounded-full font-bold text-lg shadow-lg transition-all
-                            bg-amber-500 hover:bg-amber-400 text-slate-900 hover:shadow-amber-500/25 active:scale-95
+                                className={`
+                                    px-8 py-3 rounded-full font-bold text-lg shadow-lg transition-all
+                                    bg-amber-500 hover:bg-amber-400 text-slate-900 hover:shadow-amber-500/25 active:scale-95
                             ${isDrawing || hasDrawnThisWeek ? 'opacity-80 cursor-wait' : ''}
-                        `}
-                    >
-                        {isDrawing ? "Drawing..." : "✨ 抽取幸运跑友 ✨"}
-                    </button>
-                )}
+                                `}
+                            >
+                                {isDrawing ? "Drawing..." : "✨ 抽取幸运跑友 ✨"}
+                            </button>
+                        )}
                          
                          {/* Info Text */}
                          <div className="mt-4 flex flex-col items-center gap-1">
@@ -830,10 +904,10 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({
                                 </p>
                             )}
                     {isUnlocked && !isPoolLoading && !hasDrawnThisWeek && (
-                        <p className="text-xs text-slate-500">
+                                <p className="text-xs text-slate-500">
                             Draw is open! Click to draw for this week.
-                        </p>
-                    )}
+                                </p>
+                            )}
                          </div>
             </div>
 

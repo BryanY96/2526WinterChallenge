@@ -541,12 +541,14 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({
             timeZone: "America/New_York",
             weekday: "long",
             hour: "numeric",
-            hour12: false
+            hour12: false,
+            minute: "numeric"
           });
           
           // Get EST date parts
           const estParts = estFormatter.formatToParts(now);
           const estHour = parseInt(estParts.find(p => p.type === 'hour')?.value || '0', 10);
+          const estMinute = parseInt(estParts.find(p => p.type === 'minute')?.value || '0', 10);
           const estWeekday = estParts.find(p => p.type === 'weekday')?.value || '';
           
           // Convert weekday to day number (0 = Sunday)
@@ -563,12 +565,26 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({
 
           const isOpen = isOfficialWindow;
 
+          // Detailed logging for debugging
+          console.log('[LuckyChallenge] checkTime - EST:', {
+            weekday: estWeekday,
+            day,
+            hour,
+            minute: estMinute,
+            isOfficialWindow,
+            isOpen,
+            weekId,
+            now: now.toISOString()
+          });
+
           if (isOpen) {
               setIsUnlocked(true);
               setStatusMessage("Ready to Draw");
+              console.log('[LuckyChallenge] ✅ Button UNLOCKED - Ready to draw');
           } else {
               setIsUnlocked(false);
               setStatusMessage("Draw Opens: Sunday 8PM EST, Close: Monday 12AM EST");
+              console.log('[LuckyChallenge] 🔒 Button LOCKED - Not in draw window');
           }
       };
 
@@ -679,49 +695,49 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({
 
             {/* Action Area */}
             <div className="text-center space-y-4">
-                {hasResult ? (
-                    <div className="animate-fadeIn">
-                        <div className="bg-amber-500/10 border border-amber-500/30 p-4 rounded-xl mb-4">
+                {/* Always show result if available */}
+                {hasResult && (
+                    <div className="animate-fadeIn mb-4">
+                        <div className="bg-amber-500/10 border border-amber-500/30 p-4 rounded-xl">
                             <p className="text-amber-300 text-xs uppercase tracking-wider font-bold mb-1">Challenge Mission</p>
                             <p className="text-lg font-bold text-white">{assignedTask}</p>
                         </div>
                     </div>
-                ) : (
-                    <div>
-                        {!isUnlocked || isPoolLoading ? (
-                            <div className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-slate-700 text-slate-400 border border-slate-600 cursor-not-allowed">
-                                {isPoolLoading ? <Loader2 size={18} className="animate-spin" /> : <Clock size={18} />}
-                                <span>{statusMessage}</span>
-                            </div>
-                        ) : (
-                            <button 
-                                onClick={handleDraw}
-                                disabled={isDrawing}
-                                className={`
-                                    px-8 py-3 rounded-full font-bold text-lg shadow-lg transition-all
-                                    bg-amber-500 hover:bg-amber-400 text-slate-900 hover:shadow-amber-500/25 active:scale-95
-                                    ${isDrawing ? 'opacity-80 cursor-wait' : ''}
-                                `}
-                            >
-                                {isDrawing ? "Drawing..." : "✨ 抽取幸运跑友 ✨"}
-                            </button>
-                        )}
-                         
-                         {/* Info Text */}
-                         <div className="mt-4 flex flex-col items-center gap-1">
-                            {!isUnlocked && !isPoolLoading && (
-                                <p className="text-xs text-slate-500 flex items-center gap-1">
-                                    <Lock size={12} /> Results are locked until Sunday 8 PM EST.
-                                </p>
-                            )}
-                            {isUnlocked && !hasResult && !isPoolLoading && (
-                                <p className="text-xs text-slate-500">
-                                    Draw is open! Results are final for the week.
-                                </p>
-                            )}
-                         </div>
-                    </div>
                 )}
+                
+                {/* Show button if unlocked (even if there's a result - allows re-draw in new week) */}
+                {!isUnlocked || isPoolLoading ? (
+                    <div className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-slate-700 text-slate-400 border border-slate-600 cursor-not-allowed">
+                        {isPoolLoading ? <Loader2 size={18} className="animate-spin" /> : <Clock size={18} />}
+                        <span>{statusMessage}</span>
+                    </div>
+                ) : (
+                    <button 
+                        onClick={handleDraw}
+                        disabled={isDrawing}
+                        className={`
+                            px-8 py-3 rounded-full font-bold text-lg shadow-lg transition-all
+                            bg-amber-500 hover:bg-amber-400 text-slate-900 hover:shadow-amber-500/25 active:scale-95
+                            ${isDrawing ? 'opacity-80 cursor-wait' : ''}
+                        `}
+                    >
+                        {isDrawing ? "Drawing..." : "✨ 抽取幸运跑友 ✨"}
+                    </button>
+                )}
+                 
+                 {/* Info Text */}
+                 <div className="mt-4 flex flex-col items-center gap-1">
+                    {!isUnlocked && !isPoolLoading && (
+                        <p className="text-xs text-slate-500 flex items-center gap-1">
+                            <Lock size={12} /> Results are locked until Sunday 8 PM EST.
+                        </p>
+                    )}
+                    {isUnlocked && !isPoolLoading && (
+                        <p className="text-xs text-slate-500">
+                            {hasResult ? "Draw is open! Click to draw for this week (will update result)." : "Draw is open! Results are final for the week."}
+                        </p>
+                    )}
+                 </div>
             </div>
 
             {/* Footer Upload Action (Always visible) */}

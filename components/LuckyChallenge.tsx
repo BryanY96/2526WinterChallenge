@@ -46,7 +46,13 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({
   // Helper: Save draw result to Google Sheets
   const saveDrawResultToSheet = async (weekId: string, winners: string[], task: string) => {
     if (!luckyDrawScriptUrl) {
-      console.warn("Lucky Draw Script URL not configured, skipping save to sheet");
+      console.warn('[LuckyChallenge] Lucky Draw Script URL not configured, skipping save to sheet');
+      return;
+    }
+    
+    // Validate inputs
+    if (!weekId || !winners || winners.length !== 3 || !task) {
+      console.error('[LuckyChallenge] Invalid draw result data:', { weekId, winners, task });
       return;
     }
     
@@ -58,7 +64,11 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({
         task: task
       };
       
-      await fetch(luckyDrawScriptUrl, {
+      console.log('[LuckyChallenge] Attempting to save draw result to sheet:', payload);
+      
+      // Note: Using 'no-cors' mode means we can't see the response, but the request should still succeed
+      // The Google Apps Script will handle the write operation server-side
+      const response = await fetch(luckyDrawScriptUrl, {
         method: 'POST',
         mode: 'no-cors',
         headers: { 
@@ -67,10 +77,50 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({
         body: JSON.stringify(payload)
       });
       
-      console.log('Draw result saved to sheet:', { weekId, winners, task });
+      // With no-cors mode, we can't check response.ok, but we can log that the request was sent
+      console.log('[LuckyChallenge] ✅ Draw result save request sent to sheet:', { weekId, winners, task });
+      
+      // Verify the save by attempting to read it back after a short delay
+      // This is a best-effort verification since no-cors prevents reading the response
+      setTimeout(async () => {
+        try {
+          if (spreadsheetId && luckyDrawSheetName) {
+            const csvUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(luckyDrawSheetName)}`;
+            const csvResponse = await fetch(csvUrl);
+            if (csvResponse.ok) {
+              const csvText = await csvResponse.text();
+              const lines = csvText.split('\n').filter(line => line.trim());
+              if (lines.length > 1) {
+                const headers = lines[0].split(',');
+                const weekIdIndex = headers.findIndex(h => /week|id/i.test(h));
+                if (weekIdIndex >= 0) {
+                  const normalizedWeekId = weekId.replace(/^W/i, '');
+                  for (let i = 1; i < lines.length; i++) {
+                    const row = lines[i].split(',');
+                    const rowWeekId = row[weekIdIndex]?.trim().replace(/"/g, '');
+                    if (rowWeekId && (
+                      rowWeekId === weekId || 
+                      rowWeekId === normalizedWeekId ||
+                      rowWeekId.replace(/^W/i, '') === normalizedWeekId
+                    )) {
+                      console.log('[LuckyChallenge] ✅ Verified: Draw result successfully saved to sheet');
+                      return;
+                    }
+                  }
+                  console.warn('[LuckyChallenge] ⚠️ Could not verify save: Result not found in sheet (may need more time to propagate)');
+                }
+              }
+            }
+          }
+        } catch (verifyError) {
+          console.warn('[LuckyChallenge] ⚠️ Could not verify save:', verifyError);
+        }
+      }, 2000); // Wait 2 seconds before verification
+      
     } catch (error) {
-      console.error('Failed to save draw result to sheet:', error);
-      // Don't show error to user, just log it
+      console.error('[LuckyChallenge] ❌ Failed to save draw result to sheet:', error);
+      // Note: With no-cors mode, network errors might not be caught
+      // The error could be due to network issues or script configuration
     }
   };
   
@@ -289,22 +339,35 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({
       console.log('[LuckyChallenge] Config:', { spreadsheetId, luckyDrawScriptUrl, luckyDrawSheetName });
 
       // Check if we're in the draw window (Sunday 8PM EST or later)
+      // Use Intl.DateTimeFormat to get EST date components correctly
       const now = new Date();
-      const estTimeStr = now.toLocaleString("en-US", { timeZone: "America/New_York" });
-      const estDate = new Date(estTimeStr);
-      const day = estDate.getDay(); // 0 = Sunday, 1 = Monday, ...
-      const hour = estDate.getHours(); // 0-23
+      const estFormatter = new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/New_York",
+        weekday: "long",
+        hour: "numeric",
+        hour12: false,
+        day: "numeric"
+      });
+      
+      // Get EST date parts
+      const estParts = estFormatter.formatToParts(now);
+      const estHour = parseInt(estParts.find(p => p.type === 'hour')?.value || '0', 10);
+      const estWeekday = estParts.find(p => p.type === 'weekday')?.value || '';
+      
+      // Convert weekday to day number (0 = Sunday)
+      const weekdayMap: { [key: string]: number } = {
+        'Sunday': 0, 'Monday': 1, 'Tuesday': 2, 'Wednesday': 3,
+        'Thursday': 4, 'Friday': 5, 'Saturday': 6
+      };
+      const day = weekdayMap[estWeekday] ?? -1;
+      const hour = estHour;
       const isInDrawWindow = (day === 0 && hour >= 20); // Sunday 8PM EST or later
-      console.log('[LuckyChallenge] Time check - Day:', day, 'Hour:', hour, 'IsInDrawWindow:', isInDrawWindow);
+      console.log('[LuckyChallenge] Time check - EST Weekday:', estWeekday, 'Day:', day, 'Hour:', hour, 'IsInDrawWindow:', isInDrawWindow);
 
       // Load current week result (priority: localStorage > Google Sheets)
-      // Only load current week if we're in the draw window (Sunday 8PM or later)
+      // Always try to load current week result, regardless of draw window
+      // This ensures we show current week's result if it exists (even on Monday-Saturday)
       const loadCurrentWeekResult = async () => {
-          // If not in draw window, don't try to load current week
-          if (!isInDrawWindow) {
-              console.log('[LuckyChallenge] Not in draw window, skipping current week load');
-              return false;
-          }
           console.log('[LuckyChallenge] loadCurrentWeekResult called for weekId:', weekId);
           // --- 1) 优先从 localStorage 读取已经抽出的结果，保证整周都固定 ---
           const stored = localStorage.getItem(`lucky_result_${weekId}`);
@@ -432,56 +495,67 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({
           return false; // No current week result found
       };
       
-      // Load results based on time window
-      if (isInDrawWindow) {
-          // In draw window: Try to load current week, if not found, show previous week
-          loadCurrentWeekResult().then(hasCurrentWeekResult => {
-              console.log('[LuckyChallenge] loadCurrentWeekResult finished, hasResult:', hasCurrentWeekResult);
-              if (!hasCurrentWeekResult) {
-                  console.log('[LuckyChallenge] No current week result, trying to load previous week...');
-                  // If no current week result, show previous week's result
-                  loadPreviousDrawResults(weekId).then(prevResult => {
-                      console.log('[LuckyChallenge] loadPreviousDrawResults result:', prevResult);
-                      if (prevResult && prevResult.winners && prevResult.winners.length === 3) {
-                          console.log('[LuckyChallenge] ✅ Loaded previous week result:', prevResult);
-                          setWinners(prevResult.winners);
-                          setAssignedTask(prevResult.task || '');
-                      } else {
-                          console.log('[LuckyChallenge] ⚠️ No previous week result found or invalid format');
-                      }
-                  }).catch(error => {
-                      console.error('[LuckyChallenge] ❌ Error loading previous week result:', error);
-                  });
-              }
-          }).catch(error => {
-              console.error('[LuckyChallenge] ❌ Error in loadCurrentWeekResult:', error);
-          });
-      } else {
-          // Not in draw window: Always show previous week's result
-          console.log('[LuckyChallenge] Not in draw window, loading previous week result...');
+      // Load results: Always try current week first, then fallback to previous week
+      // This ensures:
+      // - Monday-Saturday: Show current week result if it exists (already drawn), otherwise show previous week
+      // - Sunday 8PM+: In draw window, try to load current week, if not found show previous week
+      loadCurrentWeekResult().then(hasCurrentWeekResult => {
+          console.log('[LuckyChallenge] loadCurrentWeekResult finished, hasResult:', hasCurrentWeekResult);
+          if (!hasCurrentWeekResult) {
+              console.log('[LuckyChallenge] No current week result, trying to load previous week...');
+              // If no current week result, show previous week's result as fallback
+              loadPreviousDrawResults(weekId).then(prevResult => {
+                  console.log('[LuckyChallenge] loadPreviousDrawResults result:', prevResult);
+                  if (prevResult && prevResult.winners && prevResult.winners.length === 3) {
+                      console.log('[LuckyChallenge] ✅ Loaded previous week result as fallback:', prevResult);
+                      setWinners(prevResult.winners);
+                      setAssignedTask(prevResult.task || '');
+                  } else {
+                      console.log('[LuckyChallenge] ⚠️ No previous week result found or invalid format');
+                  }
+              }).catch(error => {
+                  console.error('[LuckyChallenge] ❌ Error loading previous week result:', error);
+              });
+          } else {
+              console.log('[LuckyChallenge] ✅ Current week result loaded and displayed');
+          }
+      }).catch(error => {
+          console.error('[LuckyChallenge] ❌ Error in loadCurrentWeekResult:', error);
+          // On error, still try to load previous week as fallback
           loadPreviousDrawResults(weekId).then(prevResult => {
-              console.log('[LuckyChallenge] loadPreviousDrawResults result:', prevResult);
               if (prevResult && prevResult.winners && prevResult.winners.length === 3) {
-                  console.log('[LuckyChallenge] ✅ Loaded previous week result (before draw window):', prevResult);
+                  console.log('[LuckyChallenge] ✅ Loaded previous week result after error:', prevResult);
                   setWinners(prevResult.winners);
                   setAssignedTask(prevResult.task || '');
-              } else {
-                  console.log('[LuckyChallenge] ⚠️ No previous week result found or invalid format');
               }
-          }).catch(error => {
-              console.error('[LuckyChallenge] ❌ Error loading previous week result:', error);
+          }).catch(prevError => {
+              console.error('[LuckyChallenge] ❌ Error loading previous week result after error:', prevError);
           });
-      }
+      });
 
-      // 2) Check EST Time (只控制是否可以“抽奖按钮”，不影响结果显示)
+      // 2) Check EST Time (只控制是否可以"抽奖按钮"，不影响结果显示)
       const checkTime = () => {
-          // Create date object for EST
+          // Use Intl.DateTimeFormat to get EST date components correctly
           const now = new Date();
-          const estTimeStr = now.toLocaleString("en-US", { timeZone: "America/New_York" });
-          const estDate = new Date(estTimeStr);
+          const estFormatter = new Intl.DateTimeFormat("en-US", {
+            timeZone: "America/New_York",
+            weekday: "long",
+            hour: "numeric",
+            hour12: false
+          });
           
-          const day = estDate.getDay(); // 0 = Sunday, 1 = Monday, ... 5 = Friday, 6 = Saturday
-          const hour = estDate.getHours(); // 0-23
+          // Get EST date parts
+          const estParts = estFormatter.formatToParts(now);
+          const estHour = parseInt(estParts.find(p => p.type === 'hour')?.value || '0', 10);
+          const estWeekday = estParts.find(p => p.type === 'weekday')?.value || '';
+          
+          // Convert weekday to day number (0 = Sunday)
+          const weekdayMap: { [key: string]: number } = {
+            'Sunday': 0, 'Monday': 1, 'Tuesday': 2, 'Wednesday': 3,
+            'Thursday': 4, 'Friday': 5, 'Saturday': 6
+          };
+          const day = weekdayMap[estWeekday] ?? -1;
+          const hour = estHour;
           
           // --- RULES ---
           // 2. Official Window: Sunday 8 PM EST to Monday 12 AM EST (Sunday 20:00 - 23:59)

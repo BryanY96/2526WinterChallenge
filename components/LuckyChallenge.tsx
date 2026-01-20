@@ -33,6 +33,11 @@ const getCurrentWeekId = (): string => {
   return `W${weekNum}`;
 };
 
+// Configuration: Specify which week needs makeup draw (e.g., "W5")
+// To enable makeup for a different week, simply change this value to the target week ID
+// Makeup window: Monday 8PM-11:59PM EST only (expires after Monday midnight)
+const MAKEUP_WEEK_ID = "W5"; // Change this to enable makeup for other weeks (e.g., "W6", "W7")
+
 interface LuckyChallengeProps {
   currentWeekRunners: string[];
   weekId: string; // e.g., "W1", "W2"
@@ -75,6 +80,9 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [statusMessage, setStatusMessage] = useState("Loading...");
   const [hasDrawnThisWeek, setHasDrawnThisWeek] = useState(false); // Track if draw has been completed for current week
+  const [isMakeupWindow, setIsMakeupWindow] = useState(false); // Track if currently in makeup window
+  const [makeupWeekId, setMakeupWeekId] = useState<string | null>(null); // Track which week needs makeup draw (e.g., "W5")
+  const [hasPreviousWeekResult, setHasPreviousWeekResult] = useState<boolean>(false); // Track if previous week has result
   
   // Helper: Save draw result to Google Sheets
   const saveDrawResultToSheet = async (weekId: string, winners: string[], task: string) => {
@@ -645,15 +653,51 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({
                       setWinners(prevResult.winners);
                       setAssignedTask(prevResult.task || '');
                       setHasDrawnThisWeek(false); // Previous week's result, current week not drawn yet
+                      setHasPreviousWeekResult(true); // Previous week has result
+                      setMakeupWeekId(null); // No makeup needed
                   } else {
                       console.log('[LuckyChallenge] ⚠️ No previous week result found or invalid format');
                       setHasDrawnThisWeek(false); // No result found, not drawn yet
+                      // Check if we need to set up makeup draw for previous week
+                      const weekMatch = weekId.match(/^W(\d+)$/i);
+                      if (weekMatch) {
+                          const currentWeekNum = parseInt(weekMatch[1]);
+                          if (currentWeekNum > 1) {
+                              const prevWeekId = `W${currentWeekNum - 1}`;
+                              setHasPreviousWeekResult(false); // Previous week has no result
+                              setMakeupWeekId(prevWeekId); // Set makeup weekId for potential makeup draw
+                              console.log('[LuckyChallenge] ⚠️ Previous week', prevWeekId, 'has no result - makeup draw available on Monday 8PM-11:59PM EST');
+                          }
+                      }
                   }
               }).catch(error => {
                   console.error('[LuckyChallenge] ❌ Error loading previous week result:', error);
               });
           } else {
               console.log('[LuckyChallenge] ✅ Current week result loaded and displayed');
+              // Current week has result, check previous week for makeup
+              const weekMatch = weekId.match(/^W(\d+)$/i);
+              if (weekMatch) {
+                  const currentWeekNum = parseInt(weekMatch[1]);
+                  if (currentWeekNum > 1) {
+                      const prevWeekId = `W${currentWeekNum - 1}`;
+                      // Check if previous week has result
+                      loadPreviousDrawResults(weekId).then(prevResult => {
+                          if (prevResult && prevResult.winners && prevResult.winners.length === 3) {
+                              setHasPreviousWeekResult(true);
+                              setMakeupWeekId(null);
+                          } else {
+                              setHasPreviousWeekResult(false);
+                              setMakeupWeekId(prevWeekId);
+                              console.log('[LuckyChallenge] ⚠️ Previous week', prevWeekId, 'has no result - makeup draw available on Monday 8PM-11:59PM EST');
+                          }
+                      }).catch(() => {
+                          // On error, assume previous week might need makeup
+                          setHasPreviousWeekResult(false);
+                          setMakeupWeekId(prevWeekId);
+                      });
+                  }
+              }
           }
       }).catch(error => {
           console.error('[LuckyChallenge] ❌ Error in loadCurrentWeekResult:', error);
@@ -664,8 +708,19 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({
                   setWinners(prevResult.winners);
                   setAssignedTask(prevResult.task || '');
                   setHasDrawnThisWeek(false); // Previous week's result, current week not drawn yet
+                  setHasPreviousWeekResult(true);
+                  setMakeupWeekId(null);
               } else {
                   setHasDrawnThisWeek(false); // No result found, not drawn yet
+                  const weekMatch = weekId.match(/^W(\d+)$/i);
+                  if (weekMatch) {
+                      const currentWeekNum = parseInt(weekMatch[1]);
+                      if (currentWeekNum > 1) {
+                          const prevWeekId = `W${currentWeekNum - 1}`;
+                          setHasPreviousWeekResult(false);
+                          setMakeupWeekId(prevWeekId);
+                      }
+                  }
               }
           }).catch(prevError => {
               console.error('[LuckyChallenge] ❌ Error loading previous week result after error:', prevError);
@@ -699,10 +754,41 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({
           const hour = estHour;
           
           // --- RULES ---
-          // 2. Official Window: Sunday 8 PM EST to Monday 12 AM EST (Sunday 20:00 - 23:59)
+          // 1. Official Window: Sunday 8 PM EST or later
           const isOfficialWindow = (day === 0 && hour >= 20);
+          
+          // 2. Makeup Window: Monday 8 PM EST to 11:59 PM EST (补救窗口)
+          //    Only available if:
+          //    - Current time is Monday 8PM-11:59PM EST (expires after Monday midnight)
+          //    - Previous week matches MAKEUP_WEEK_ID and has no draw result
+          //    Monday: hour >= 20 && hour < 24 (8PM - 11:59PM, expires at midnight)
+          const isMakeupWindowActive = (day === 1 && hour >= 20 && hour < 24);
+          setIsMakeupWindow(isMakeupWindowActive);
 
-          const isOpen = isOfficialWindow;
+          // Check if makeup draw is available (only on Monday 8PM-11:59PM EST)
+          // Must match MAKEUP_WEEK_ID and previous week must have no result
+          if (isMakeupWindowActive && makeupWeekId === MAKEUP_WEEK_ID && !hasPreviousWeekResult) {
+              // Makeup draw available for the specified week
+              setIsUnlocked(true);
+              setStatusMessage(`Makeup Draw Window: Draw for ${makeupWeekId} (Monday 8PM-11:59PM EST only)`);
+              console.log('[LuckyChallenge] ✅ Button UNLOCKED - Makeup window for', makeupWeekId, '(expires at Monday midnight)');
+              return; // Early return, don't check normal window
+          } else if (isMakeupWindowActive && makeupWeekId === MAKEUP_WEEK_ID && hasPreviousWeekResult) {
+              // Makeup week already has result, window closed
+              setIsUnlocked(false);
+              setStatusMessage(`${makeupWeekId} already has draw result. Makeup window closed.`);
+              console.log('[LuckyChallenge] 🔒 Button LOCKED - Makeup week already has result');
+              return;
+          } else if (isMakeupWindowActive && makeupWeekId !== MAKEUP_WEEK_ID) {
+              // Not the configured makeup week, window closed
+              setIsUnlocked(false);
+              setStatusMessage(`Makeup window not available for ${makeupWeekId || 'this week'}.`);
+              console.log('[LuckyChallenge] 🔒 Button LOCKED - Not the configured makeup week');
+              return;
+          }
+
+          // Normal draw window: Sunday 8PM+ AND not already drawn this week
+          const isOpen = isOfficialWindow && !hasDrawnThisWeek;
 
           // Detailed logging for debugging
           console.log('[LuckyChallenge] ===== Time Check =====');
@@ -714,6 +800,10 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({
             minute: estMinute,
             fullTime: `${estWeekday} ${hour}:${estMinute.toString().padStart(2, '0')}`,
             isOfficialWindow,
+            isMakeupWindowActive,
+            hasDrawnThisWeek,
+            hasPreviousWeekResult,
+            makeupWeekId,
             isOpen,
             now: now.toISOString()
           });
@@ -725,8 +815,13 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({
               console.log('[LuckyChallenge] ✅ Button UNLOCKED - Ready to draw');
           } else {
               setIsUnlocked(false);
-              setStatusMessage("Draw Opens: Sunday 8PM EST, Close: Monday 12AM EST");
-              console.log('[LuckyChallenge] 🔒 Button LOCKED - Not in draw window');
+              if (hasDrawnThisWeek) {
+                  setStatusMessage("Draw completed for this week. Next draw opens Sunday 8PM EST.");
+                  console.log('[LuckyChallenge] 🔒 Button LOCKED - Already drawn this week');
+              } else {
+                  setStatusMessage("Draw Opens: Sunday 8PM EST.");
+                  console.log('[LuckyChallenge] 🔒 Button LOCKED - Not in draw window');
+              }
           }
       };
 
@@ -753,10 +848,20 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({
       }
 
       return () => clearInterval(timer);
-  }, [weekId, currentWeekRunners, isPoolLoading, challengePool, usedTasks, spreadsheetId, luckyDrawScriptUrl]); // Add dependencies
+  }, [weekId, currentWeekRunners, isPoolLoading, challengePool, usedTasks, spreadsheetId, luckyDrawScriptUrl, hasDrawnThisWeek, isMakeupWindow, makeupWeekId, hasPreviousWeekResult]); // Add dependencies
 
   const handleDraw = () => {
-    if (isDrawing || !isUnlocked || hasDrawnThisWeek) return;
+    // Allow draw if:
+    // 1. Not currently drawing
+    // 2. Unlocked (time window is open)
+    // 3. Either not drawn this week OR in makeup window (allows makeup draw for previous week)
+    if (isDrawing || !isUnlocked) return;
+    
+    // If in makeup window, only allow if:
+    // 1. Previous week matches MAKEUP_WEEK_ID
+    // 2. Previous week has no result
+    if (hasDrawnThisWeek && !isMakeupWindow) return;
+    if (hasDrawnThisWeek && isMakeupWindow && (makeupWeekId !== MAKEUP_WEEK_ID || hasPreviousWeekResult)) return;
     
     // Perform truly random draw (different each time)
     const result = performRandomDraw();
@@ -803,18 +908,26 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({
             'Sunday': 0, 'Monday': 1, 'Tuesday': 2, 'Wednesday': 3,
             'Thursday': 4, 'Friday': 5, 'Saturday': 6
           };
-          const drawDay = weekdayMap[drawWeekday] ?? -1;
-          const isInDrawWindow = (drawDay === 0 && drawHour >= 20);
+          // Determine which weekId to use for saving
+          // If in makeup window and makeupWeekId is set, use makeupWeekId (previous week)
+          // Otherwise, use normal logic (current week)
+          let drawWeekId: string;
+          if (isMakeupWindow && makeupWeekId) {
+              // Makeup draw: save to previous week's weekId
+              drawWeekId = makeupWeekId;
+              console.log('[LuckyChallenge] Makeup draw completed - saving to', drawWeekId);
+          } else {
+              // Normal draw: use current week logic
+              const drawDay = weekdayMap[drawWeekday] ?? -1;
+              const isInDrawWindow = (drawDay === 0 && drawHour >= 20);
+              const currentDateWeekId = getCurrentWeekId();
+              drawWeekId = isInDrawWindow ? currentDateWeekId : weekId;
+              console.log('[LuckyChallenge] Normal draw completed - using weekId:', drawWeekId, '(from date:', currentDateWeekId, 'from props:', weekId, ')');
+              // Mark as drawn for this week - button will be disabled
+              setHasDrawnThisWeek(true);
+          }
           
-          const currentDateWeekId = getCurrentWeekId();
-          const drawWeekId = isInDrawWindow ? currentDateWeekId : weekId;
-          
-          console.log('[LuckyChallenge] Draw completed - using weekId:', drawWeekId, '(from date:', currentDateWeekId, 'from props:', weekId, ')');
-          
-          // Mark as drawn for this week - button will be disabled
-          setHasDrawnThisWeek(true);
-          
-            // Save state so we don't animate again this week
+          // Save state so we don't animate again
           localStorage.setItem(`seen_draw_${drawWeekId}`, "true");
           // Persist concrete winners & task so该周内任何时间刷新都保持一致
           localStorage.setItem(
@@ -825,6 +938,13 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({
           saveDrawResultToSheet(drawWeekId, result.winners, result.task);
           // Update used tasks list
           setUsedTasks(prev => [...prev, result.task]);
+          
+          // If this was a makeup draw, mark previous week as having result now
+          if (isMakeupWindow && makeupWeekId === MAKEUP_WEEK_ID) {
+              setHasPreviousWeekResult(true);
+              setMakeupWeekId(null); // Clear makeup weekId after successful draw
+              console.log('[LuckyChallenge] Makeup draw completed for', drawWeekId, '- makeup window closed');
+          }
         }
     }, 100);
   };
@@ -876,8 +996,8 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({
                     </div>
                 )}
                 
-                {/* Show button if unlocked and not already drawn this week */}
-                {!isUnlocked || isPoolLoading || hasDrawnThisWeek ? (
+                {/* Show button if unlocked and (not already drawn OR in makeup window for configured week) */}
+                {!isUnlocked || isPoolLoading || (hasDrawnThisWeek && !(isMakeupWindow && makeupWeekId === MAKEUP_WEEK_ID && !hasPreviousWeekResult)) ? (
                     <div className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-slate-700 text-slate-400 border border-slate-600 cursor-not-allowed">
                         {isPoolLoading ? <Loader2 size={18} className="animate-spin" /> : hasDrawnThisWeek ? <Lock size={18} /> : <Clock size={18} />}
                         <span>{hasDrawnThisWeek ? "Draw completed for this week. Next draw opens Sunday 8PM EST." : statusMessage}</span>
@@ -885,14 +1005,14 @@ export const LuckyChallenge: React.FC<LuckyChallengeProps> = ({
                         ) : (
                             <button 
                                 onClick={handleDraw}
-                        disabled={isDrawing || hasDrawnThisWeek}
+                        disabled={isDrawing}
                                 className={`
                                     px-8 py-3 rounded-full font-bold text-lg shadow-lg transition-all
                                     bg-amber-500 hover:bg-amber-400 text-slate-900 hover:shadow-amber-500/25 active:scale-95
-                            ${isDrawing || hasDrawnThisWeek ? 'opacity-80 cursor-wait' : ''}
+                            ${isDrawing ? 'opacity-80 cursor-wait' : ''}
                                 `}
                             >
-                                {isDrawing ? "Drawing..." : "✨ 抽取幸运跑友 ✨"}
+                                {isDrawing ? "Drawing..." : (isMakeupWindow && makeupWeekId ? `✨ 补救抽取 ${makeupWeekId} ✨` : "✨ 抽取幸运跑友 ✨")}
                             </button>
                         )}
                          

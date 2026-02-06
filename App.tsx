@@ -34,7 +34,7 @@ export interface RunnerData {
   bonusDistance?: number;
   streakCount?: number;
   hasStreak?: boolean; 
-  isPerfect?: boolean;
+  isPerfect?: boolean; 
   // Daily records: key is day column name (e.g., "Mon", "Tue", "周一"), value is distance in km
   dailyRecords?: Record<string, number>;
   // Week ID for this data (e.g., "W1", "W2")
@@ -127,7 +127,7 @@ export default function App() {
               dailyRecords[k] = val;
               if (val > 0) {
                   // 只累加 Mon-Sun / 日期列，忽略其它数值（例如 converter 区域的 mi / km）
-                  calcSum += val;
+              calcSum += val;
                   frequency++;
               }
           }
@@ -438,28 +438,30 @@ export default function App() {
             // Find the trigger runner in this week's periodRunners
             const triggerRunner = periodRunners.find(r => r.name === triggerRunnerName);
             
-            // Check if team is already saved in sheet (by checking if trigger runner has partner column)
-            // Priority: Use existing partner data from "补给站搭档" column if available
-            const hasTeamInSheet = triggerRunner?.isSupplyStationTeam && triggerRunner?.supplyStationPartner;
+            // ⚠️ 修复：检查整个触发周是否已经有任何团队数据存在（不仅仅是 triggerRunner）
+            // 这样可以避免在已有团队的情况下创建新团队
+            const existingTeamsInWeek = periodRunners.filter(r => r.isSupplyStationTeam && r.supplyStationPartner);
+            const hasAnyTeamInSheet = existingTeamsInWeek.length > 0;
             
-            if (hasTeamInSheet && triggerRunner && triggerRunner.supplyStationPartner) {
-                // Team already exists in sheet, use the existing partner data
-                const existingPartnerName = triggerRunner.supplyStationPartner;
-                const existingPartner = periodRunners.find(r => r.name === existingPartnerName);
+            // Check if trigger runner specifically has a partner
+            const triggerHasPartner = triggerRunner?.isSupplyStationTeam && triggerRunner?.supplyStationPartner;
+            
+            if (hasAnyTeamInSheet) {
+                // Team(s) already exist in sheet, use the existing data
+                console.log(`[Supply Station] ✅ Team(s) already exist in sheet for ${sheetName}:`, 
+                    existingTeamsInWeek.map(r => `${r.name} + ${r.supplyStationPartner}`).join(', '));
+                console.log(`[Supply Station] 📊 Using existing team data - all team members already have 2x bonus applied from sheet data`);
                 
-                if (existingPartner) {
-                    console.log(`[Supply Station] ✅ Team already exists in sheet: ${triggerRunner.name} + ${existingPartnerName} in ${sheetName}`);
-                    console.log(`[Supply Station] 📊 Using existing team data - both runners already have 2x bonus applied from sheet data`);
-                    
-                    // Ensure both runners are marked as team members (they should already be from sheet data)
-                    supplyStationTeamMembers.add(triggerRunner.name);
-                    supplyStationTeamMembers.add(existingPartnerName);
-                    
-                    // runnerTotals are already updated in the main loop when processing sheet data
-                } else {
-                    console.warn(`[Supply Station] ⚠️ Partner ${existingPartnerName} not found in periodRunners, but team exists in sheet`);
-                }
-            } else if (!hasTeamInSheet && triggerRunner && periodRunners.length > 1) {
+                // Ensure all team members are marked (they should already be from sheet data)
+                existingTeamsInWeek.forEach(runner => {
+                    supplyStationTeamMembers.add(runner.name);
+                    if (runner.supplyStationPartner) {
+                        supplyStationTeamMembers.add(runner.supplyStationPartner);
+                    }
+                });
+                
+                // runnerTotals are already updated in the main loop when processing sheet data
+            } else if (!hasAnyTeamInSheet && triggerRunner && periodRunners.length > 1) {
                 // Team not yet saved, need to select and save
                 // Select a partner from current week's runners (excluding trigger runner and those already in team)
                 const eligiblePartners = periodRunners.filter(r => r.name !== triggerRunner.name && !r.isSupplyStationTeam);
@@ -507,29 +509,31 @@ export default function App() {
                 } else {
                     console.log(`[Supply Station] ⚠️ No eligible partners found for ${triggerRunner.name} in ${sheetName}`);
                 }
-            } else if (hasTeamInSheet) {
-                console.log(`[Supply Station] ✅ Team already saved in sheet for ${sheetName}, using existing data`);
-                // Team already in sheet, bonus already applied in the forEach loop above
-                if (triggerRunner) {
-                    supplyStationTeamMembers.add(triggerRunner.name);
-                    if (triggerRunner.supplyStationPartner) {
-                        const partner = periodRunners.find(r => r.name === triggerRunner.supplyStationPartner);
-                        if (partner) {
-                            supplyStationTeamMembers.add(partner.name);
-                            // Calculate bonus from the distance (which should already be 2x)
-                            const originalDistance = triggerRunner.distance / 2;
-                            supplyStationBonus[triggerRunner.name] = originalDistance;
-                            supplyStationBonus[partner.name] = partner.distance / 2;
-                        }
-                    }
-                }
             } else {
-                if (!triggerRunner && supplyStationTriggerRunner !== null) {
-                    const trigger = supplyStationTriggerRunner as { name: string; weekId: string };
-                    console.log(`[Supply Station] ⚠️ Trigger runner ${trigger.name} not found in periodRunners for ${sheetName}`);
+                // Trigger runner not found or insufficient runners
+                if (!triggerRunner) {
+                    console.warn(`[Supply Station] ⚠️ Trigger runner ${triggerRunnerName} not found in ${sheetName}`);
                 } else if (periodRunners.length <= 1) {
-                    console.log(`[Supply Station] ⚠️ Not enough runners in ${sheetName} (only ${periodRunners.length})`);
+                    console.warn(`[Supply Station] ⚠️ Not enough runners in ${sheetName} to form a team`);
                 }
+            }
+            
+            // Additional check: if trigger runner exists but wasn't processed above
+            if (triggerRunner && !hasAnyTeamInSheet && periodRunners.length <= 1) {
+                console.log(`[Supply Station] ℹ️ Cannot form team: only ${periodRunners.length} runner(s) in ${sheetName}`);
+            }
+        } else if (supplyStationTriggerRunner !== null && supplyStationTriggerWeek !== sheetName) {
+            // This week is not the trigger week, but check if there are any teams from sheet data
+            const existingTeamsInWeek = periodRunners.filter(r => r.isSupplyStationTeam && r.supplyStationPartner);
+            if (existingTeamsInWeek.length > 0) {
+                console.log(`[Supply Station] ℹ️ Found existing team(s) in non-trigger week ${sheetName}:`, 
+                    existingTeamsInWeek.map(r => `${r.name} + ${r.supplyStationPartner}`).join(', '));
+                existingTeamsInWeek.forEach(runner => {
+                    supplyStationTeamMembers.add(runner.name);
+                    if (runner.supplyStationPartner) {
+                        supplyStationTeamMembers.add(runner.supplyStationPartner);
+                    }
+                });
             }
         }
 

@@ -9,10 +9,11 @@ const COORDS_ANCHORAGE: [number, number] = [61.2181, -149.9003]; // Critical Way
 const COORDS_MOHE: [number, number] = [53.4846, 122.3705];
 
 const TOTAL_GOAL_KM = 10000;
-const ANCHORAGE_MARKER_KM = 5400; // Approximate distance from DC to Anchorage
+const ANCHORAGE_MARKER_KM = 5000; // Actual distance from DC to Anchorage on the route
 
 interface MapSectionProps {
   progressPercentage: number;
+  totalDistance: number; // Add totalDistance to calculate remaining distance based on route distance
 }
 
 // Custom Icons
@@ -71,6 +72,25 @@ const isValidLatLng = (coords: any): coords is [number, number] => {
 // Math Helpers for Geodesic Calculation
 const toRad = (d: number) => d * Math.PI / 180;
 const toDeg = (r: number) => r * 180 / Math.PI;
+
+// Calculate distance between two coordinates using Haversine formula (returns km)
+const calculateDistance = (coord1: [number, number], coord2: [number, number]): number => {
+    const R = 6371; // Earth's radius in km
+    const lat1 = toRad(coord1[0]);
+    const lon1 = toRad(coord1[1]);
+    const lat2 = toRad(coord2[0]);
+    const lon2 = toRad(coord2[1]);
+    
+    const dLat = lat2 - lat1;
+    const dLon = lon2 - lon1;
+    
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(lat1) * Math.cos(lat2) *
+              Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    
+    return R * c;
+};
 
 // Raw Great Circle Points Generator (No wrapping logic yet)
 const getRawGreatCirclePoints = (start: [number, number], end: [number, number], numPoints: number) => {
@@ -208,7 +228,7 @@ const MapController = ({ targetPosition, setZoom }: { targetPosition: [number, n
 }
 
 // --- Main Component ---
-export const MapSection: React.FC<MapSectionProps> = ({ progressPercentage }) => {
+export const MapSection: React.FC<MapSectionProps> = ({ progressPercentage, totalDistance }) => {
   const [currentZoom, setCurrentZoom] = useState(3);
 
   // Memoize path data
@@ -237,11 +257,28 @@ export const MapSection: React.FC<MapSectionProps> = ({ progressPercentage }) =>
     };
   }, [progressPercentage]);
 
-  // Calculate distance stats for Anchorage Marker
-  const currentKm = (progressPercentage / 100) * TOTAL_GOAL_KM;
-  const remainingToAnchorage = ANCHORAGE_MARKER_KM - currentKm;
-  const remainingToMohe = TOTAL_GOAL_KM - currentKm;
-  const isAnchoragePassed = remainingToAnchorage <= 0;
+  // Visual End Pos should be the last point of the path to match the line drawing
+  const visualEndPos = pathData.length > 0 ? pathData[pathData.length - 1] : COORDS_MOHE;
+
+  // Calculate distance stats based on route distance (not geographic distance)
+  // This ensures accuracy when totalDistance >= 5000km, we show "Reached" instead of geographic distance
+  const remainingToAnchorage = useMemo(() => {
+    if (totalDistance >= ANCHORAGE_MARKER_KM) {
+      return 0; // Already reached supply station
+    }
+    // If not reached, calculate remaining distance based on route
+    return Math.max(0, ANCHORAGE_MARKER_KM - totalDistance);
+  }, [totalDistance]);
+  
+  const remainingToMohe = useMemo(() => {
+    if (totalDistance >= TOTAL_GOAL_KM) {
+      return 0; // Already reached finish line
+    }
+    // If not reached, calculate remaining distance based on route
+    return Math.max(0, TOTAL_GOAL_KM - totalDistance);
+  }, [totalDistance]);
+  
+  const isAnchoragePassed = totalDistance >= ANCHORAGE_MARKER_KM;
 
   // Dynamic Icon Sizing
   const dynamicRunnerIcon = useMemo(() => {
@@ -261,9 +298,6 @@ export const MapSection: React.FC<MapSectionProps> = ({ progressPercentage }) =>
     if (!isValidLatLng(currentPos)) return "Unknown";
     return getLocationLabel(currentPos[0], currentPos[1]);
   }, [currentPos]);
-
-  // Visual End Pos should be the last point of the path to match the line drawing
-  const visualEndPos = pathData.length > 0 ? pathData[pathData.length - 1] : COORDS_MOHE;
 
   return (
     <section className="w-full bg-slate-800 rounded-2xl overflow-hidden shadow-2xl border border-slate-700/50">

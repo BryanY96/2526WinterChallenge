@@ -21,6 +21,8 @@ export const LUCKY_DRAW_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz
 
 // Updated Goal: 10,000km to Mohe (Arctic City)
 const GOAL_KM = 10000;
+// Supply Station (Anchorage) distance - based on actual route position (~5000km)
+const SUPPLY_STATION_KM = 5000;
 // W1 Start Date: Dec 15, 2025 (As requested)
 const START_DATE = new Date('2025-12-15T00:00:00'); 
 
@@ -36,6 +38,10 @@ export interface RunnerData {
   dailyRecords?: Record<string, number>;
   // Week ID for this data (e.g., "W1", "W2")
   weekId?: string;
+  // Supply Station Team: if this runner is part of the team that reached the supply station (5400km)
+  isSupplyStationTeam?: boolean;
+  // Supply Station Partner: name of the partner runner
+  supplyStationPartner?: string;
 }
 
 // Helper: Generate display label for a week key (e.g., "W1" -> "W1 (12/15-12/21)")
@@ -139,6 +145,10 @@ export default function App() {
     const runnerWeekStreaks: Record<string, number> = {}; 
     const runnerNamesSet = new Set<string>();
     const calculatedPeriods: Period[] = [];
+    // Track supply station team members for Total View
+    const supplyStationTeamMembers: Set<string> = new Set();
+    // Track supply station bonus for each runner (the original distance that was doubled)
+    const supplyStationBonus: Record<string, number> = {};
     
     // Process Regular Weekly Sheets
     const weeklyKeys = Object.keys(sheetsMap).filter(k => k.startsWith('W'));
@@ -160,6 +170,52 @@ export default function App() {
     const latestSheetName = reversedSheets.length > 0 ? reversedSheets[0] : "";
     const latestWeekRunnersList: string[] = [];
 
+    // Supply Station Team Detection: Track cumulative distance to find the first runner who reached 5400km
+    let cumulativeDistance = 0;
+    let supplyStationTriggerRunner: { name: string; weekId: string } | null = null;
+    let supplyStationTriggerWeek: string | null = null;
+
+    // First pass: Process in chronological order (W1, W2, ...) to detect supply station trigger
+    sortedSheetKeys.forEach(sheetName => {
+        const sheetData = sheetsMap[sheetName] || [];
+        
+        // Process runners in this week to calculate cumulative distance
+        sheetData.forEach(row => {
+            const name = row['队员'] ? row['队员'].trim() : row['Name']?.trim();
+            if (!name) return;
+            
+            const { distance: rawDistance, frequency } = analyzeRow(row);
+            const hasWeeklyStreak = frequency >= 5;
+            const bonusMultiplier = hasWeeklyStreak ? 1.2 : 1.0;
+            const finalDistance = rawDistance * bonusMultiplier;
+            
+            if (finalDistance > 0) {
+                const previousCumulative = cumulativeDistance;
+                cumulativeDistance += finalDistance;
+                
+                // Detect if this runner's distance pushed us over 5400km
+                if (previousCumulative < SUPPLY_STATION_KM && cumulativeDistance >= SUPPLY_STATION_KM && !supplyStationTriggerRunner) {
+                    supplyStationTriggerRunner = { name, weekId: sheetName };
+                    supplyStationTriggerWeek = sheetName;
+                    console.log(`[Supply Station] 🎯 Trigger detected! Runner: ${name}, Week: ${sheetName}, Cumulative: ${cumulativeDistance.toFixed(1)}km`);
+                }
+            }
+        });
+    });
+
+    // Log supply station detection result
+    if (supplyStationTriggerRunner !== null) {
+        const runner = supplyStationTriggerRunner as { name: string; weekId: string };
+        const week = supplyStationTriggerWeek ?? 'unknown';
+        console.log(`[Supply Station] ✅ Trigger runner found: ${runner.name} in ${week}`);
+    } else {
+        console.log(`[Supply Station] ⚠️ No trigger found. Current cumulative distance: ${cumulativeDistance.toFixed(1)}km (need ${SUPPLY_STATION_KM}km)`);
+    }
+
+    // Reset cumulative distance for second pass
+    cumulativeDistance = 0;
+
+    // Second pass: Process in reverse order (latest first) for display, and apply supply station bonus
     reversedSheets.forEach(sheetName => {
         const sheetData = sheetsMap[sheetName] || [];
         const periodRunners: RunnerData[] = [];
@@ -196,6 +252,68 @@ export default function App() {
             }
         });
 
+        // Apply Supply Station Team Bonus (2x for both runners in the trigger week)
+        if (supplyStationTriggerRunner && supplyStationTriggerWeek === sheetName) {
+            console.log(`[Supply Station] 🔍 Checking week ${sheetName} for trigger runner ${supplyStationTriggerRunner.name}`);
+            // Find the trigger runner in this week's periodRunners
+            const triggerRunner = periodRunners.find(r => r.name === supplyStationTriggerRunner!.name);
+            
+            if (triggerRunner && periodRunners.length > 1) {
+                // Select a partner from current week's runners (excluding trigger runner)
+                // Use a deterministic selection based on weekId and trigger name for consistency
+                const eligiblePartners = periodRunners.filter(r => r.name !== triggerRunner.name);
+                
+                if (eligiblePartners.length > 0) {
+                    // Create a simple hash from weekId and trigger name for consistent selection
+                    const hash = (sheetName + triggerRunner.name).split('').reduce((acc, char) => {
+                        return ((acc << 5) - acc) + char.charCodeAt(0);
+                    }, 0);
+                    const randomIndex = Math.abs(hash) % eligiblePartners.length;
+                    const partner = eligiblePartners[randomIndex];
+                    
+                    // Store original distances before applying 2x
+                    const triggerOriginalDistance = triggerRunner.distance;
+                    const triggerOriginalRawDistance = triggerRunner.rawDistance || triggerRunner.distance;
+                    const partnerOriginalDistance = partner.distance;
+                    const partnerOriginalRawDistance = partner.rawDistance || partner.distance;
+                    
+                    // Apply 2x bonus to both runners (double their weekly distance)
+                    // Keep rawDistance as original, distance becomes 2x, bonusDistance is the extra amount
+                    triggerRunner.rawDistance = triggerOriginalRawDistance; // Keep original raw distance
+                    triggerRunner.distance = triggerOriginalDistance * 2; // Double the final distance (after streak bonus if any)
+                    triggerRunner.bonusDistance = triggerRunner.distance - triggerOriginalRawDistance; // Total bonus = final - original raw
+                    triggerRunner.isSupplyStationTeam = true;
+                    triggerRunner.supplyStationPartner = partner.name;
+                    supplyStationTeamMembers.add(triggerRunner.name);
+                    // Store bonus for Total View (the original distance that was doubled)
+                    supplyStationBonus[triggerRunner.name] = triggerOriginalDistance;
+                    
+                    partner.rawDistance = partnerOriginalRawDistance; // Keep original raw distance
+                    partner.distance = partnerOriginalDistance * 2; // Double the final distance (after streak bonus if any)
+                    partner.bonusDistance = partner.distance - partnerOriginalRawDistance; // Total bonus = final - original raw
+                    partner.isSupplyStationTeam = true;
+                    partner.supplyStationPartner = triggerRunner.name;
+                    supplyStationTeamMembers.add(partner.name);
+                    // Store bonus for Total View (the original distance that was doubled)
+                    supplyStationBonus[partner.name] = partnerOriginalDistance;
+                    
+                    // Update runnerTotals to reflect the 2x bonus (for Total View)
+                    runnerTotals[triggerRunner.name] = (runnerTotals[triggerRunner.name] || 0) - triggerOriginalDistance + triggerRunner.distance;
+                    runnerTotals[partner.name] = (runnerTotals[partner.name] || 0) - partnerOriginalDistance + partner.distance;
+                    
+                    console.log(`[Supply Station] ✅ Team formed: ${triggerRunner.name} (${triggerOriginalDistance.toFixed(1)} → ${triggerRunner.distance.toFixed(1)}km) + ${partner.name} (${partnerOriginalDistance.toFixed(1)} → ${partner.distance.toFixed(1)}km) in ${sheetName}`);
+                } else {
+                    console.log(`[Supply Station] ⚠️ No eligible partners found for ${triggerRunner.name} in ${sheetName}`);
+                }
+            } else {
+                if (!triggerRunner) {
+                    console.log(`[Supply Station] ⚠️ Trigger runner ${supplyStationTriggerRunner.name} not found in periodRunners for ${sheetName}`);
+                } else if (periodRunners.length <= 1) {
+                    console.log(`[Supply Station] ⚠️ Not enough runners in ${sheetName} (only ${periodRunners.length})`);
+                }
+            }
+        }
+
         // Add to Period List
         periodRunners.sort((a, b) => b.distance - a.distance);
         calculatedPeriods.push({
@@ -214,11 +332,26 @@ export default function App() {
     });
 
     // Build Total Leaderboard
+    // Find supply station partners for Total View from calculatedPeriods
+    const supplyStationPartners: Record<string, string> = {};
+    calculatedPeriods.forEach(period => {
+        if (period.weekId && period.runners) {
+            period.runners.forEach(runner => {
+                if (runner.isSupplyStationTeam && runner.supplyStationPartner) {
+                    supplyStationPartners[runner.name] = runner.supplyStationPartner;
+                }
+            });
+        }
+    });
+    
     const totalRunners: RunnerData[] = Array.from(runnerNamesSet).map(name => ({
         name,
         distance: runnerTotals[name] || 0,
         streakCount: runnerWeekStreaks[name] || 0, 
-        isPerfect: (runnerWeekStreaks[name] || 0) === totalWeeksProcessed && totalWeeksProcessed > 0
+        isPerfect: (runnerWeekStreaks[name] || 0) === totalWeeksProcessed && totalWeeksProcessed > 0,
+        isSupplyStationTeam: supplyStationTeamMembers.has(name),
+        supplyStationPartner: supplyStationPartners[name],
+        bonusDistance: supplyStationBonus[name] // Store bonus for Total View display
     })).filter(r => r.distance > 0).sort((a, b) => b.distance - a.distance);
 
     calculatedPeriods.unshift({
@@ -432,7 +565,7 @@ export default function App() {
            </button>
         </div>
 
-        <MapSection progressPercentage={progressPercentage} />
+        <MapSection progressPercentage={progressPercentage} totalDistance={totalDistance} />
 
         <StatsSection 
             totalDistance={totalDistance} 

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Trophy, Medal, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Crown, Flame, Zap } from 'lucide-react';
+import { Trophy, Medal, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Crown, Flame, Zap, Users } from 'lucide-react';
 import { RunnerData } from '../App';
 import { RunnerDetailModal } from './RunnerDetailModal';
 
@@ -122,10 +122,16 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ periods }) => {
                             const streakCount = runner.streakCount || 0;
                             const isElite = streakCount >= 7;
 
+                            const isSupplyStationTeam = runner.isSupplyStationTeam || false;
+
                             return (
                                 <tr 
                                     key={`${runner.name}-${index}`} 
-                                    className="hover:bg-slate-700/30 transition-colors animate-fadeIn cursor-pointer"
+                                    className={`hover:bg-slate-700/30 transition-colors animate-fadeIn cursor-pointer ${
+                                        isSupplyStationTeam 
+                                            ? 'bg-amber-500/20 border-l-4 border-amber-500 shadow-[0_0_20px_rgba(245,158,11,0.3)]' 
+                                            : ''
+                                    }`}
                                     onClick={() => handleRunnerClick(runner)}
                                 >
                                     <td className="px-4 py-3">
@@ -166,7 +172,42 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ periods }) => {
                                                 {!isTotalView && runner.hasStreak && (
                                                     <Zap size={14} className="text-yellow-400 fill-yellow-400 animate-pulse" />
                                                 )}
+                                                
+                                                {/* --- Supply Station Team Indicator --- */}
+                                                {isSupplyStationTeam && (
+                                                    <div className="flex items-center gap-1" title={`补给站组队奖励: ${runner.name} + ${runner.supplyStationPartner || 'Partner'}`}>
+                                                        <Users size={16} className="text-amber-400 fill-amber-400 animate-pulse drop-shadow-[0_0_8px_rgba(245,158,11,0.8)]" />
+                                                    </div>
+                                                )}
                                             </div>
+                                            {/* Supply Station Team Badge */}
+                                            {isSupplyStationTeam && (
+                                                <div className="flex items-center gap-1 mt-0.5">
+                                                    {isTotalView ? (
+                                                        <>
+                                                            <span className="text-[9px] text-amber-400 font-bold bg-amber-500/20 px-1.5 py-0.5 rounded border border-amber-500/40">
+                                                                补给站奖励
+                                                            </span>
+                                                            {runner.bonusDistance && runner.bonusDistance > 0 && (
+                                                                <span className="text-[9px] text-amber-300/80">
+                                                                    +{runner.bonusDistance.toFixed(1)} bonus
+                                                                </span>
+                                                            )}
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <span className="text-[9px] text-amber-400 font-bold bg-amber-500/20 px-1.5 py-0.5 rounded border border-amber-500/40">
+                                                                补给站组队 2x
+                                                            </span>
+                                                            {runner.supplyStationPartner && (
+                                                                <span className="text-[9px] text-amber-300/80">
+                                                                    + {runner.supplyStationPartner}
+                                                                </span>
+                                                            )}
+                                                        </>
+                                                    )}
+                                                </div>
+                                            )}
                                             {isTotalView && streakCount > 0 && (
                                                 <span className="text-[10px] text-slate-500 uppercase tracking-tighter">
                                                     {streakCount} 连击{streakCount > 1 ? 's' : ''}
@@ -181,16 +222,30 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ periods }) => {
                                             </span>
                                             
                                             {/* --- Bonus Breakdown in Weekly View --- */}
-                                            {!isTotalView && runner.hasStreak && runner.bonusDistance && runner.rawDistance && (
-                                                <div className="flex items-center gap-1 text-[10px] text-green-500 font-bold whitespace-nowrap">
-                                                    <span>{runner.rawDistance.toFixed(1)}</span>
-                                                    <span className="opacity-60">+</span>
-                                                    <div className="flex items-center">
-                                                        <Zap size={8} />
-                                                        <span>{runner.bonusDistance.toFixed(1)}</span>
-                                                    </div>
-                                                    <span className="bg-green-500/10 px-1 rounded text-[9px] border border-green-500/20">1.2x</span>
-                                                </div>
+                                            {!isTotalView && (
+                                                <>
+                                                    {runner.hasStreak && runner.bonusDistance && runner.rawDistance && (
+                                                        <div className="flex items-center gap-1 text-[10px] text-green-500 font-bold whitespace-nowrap">
+                                                            <span>{runner.rawDistance.toFixed(1)}</span>
+                                                            <span className="opacity-60">+</span>
+                                                            <div className="flex items-center">
+                                                                <Zap size={8} />
+                                                                <span>{runner.bonusDistance.toFixed(1)}</span>
+                                                            </div>
+                                                            <span className="bg-green-500/10 px-1 rounded text-[9px] border border-green-500/20">1.2x</span>
+                                                        </div>
+                                                    )}
+                                                    {isSupplyStationTeam && runner.rawDistance !== undefined && (
+                                                        <div className="flex items-center gap-1 text-[10px] text-amber-400 font-bold whitespace-nowrap mt-0.5">
+                                                            <span className="opacity-70">{runner.rawDistance.toFixed(1)}</span>
+                                                            <span className="opacity-60">×</span>
+                                                            <span className="text-amber-300">2</span>
+                                                            <span className="opacity-60">=</span>
+                                                            <span className="text-amber-300">{runner.distance.toFixed(1)}</span>
+                                                            <span className="bg-amber-500/20 px-1 rounded text-[9px] border border-amber-500/40">补给站奖励</span>
+                                                        </div>
+                                                    )}
+                                                </>
                                             )}
                                         </div>
                                     </td>

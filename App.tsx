@@ -17,7 +17,8 @@ export const UPLOAD_PRESET = 'ChallengeVideos';
 export const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzoF4WKL_tT3uy1V6XIn7xObs7-cxCmsw5IJFZe0_R0-LFqCkpTnCyTK95nSneEtMTk/exec';
 // Lucky Draw Results Sheet Configuration
 export const LUCKY_DRAW_SHEET_NAME = 'Lucky Results'; // Sheet name for storing draw results
-export const LUCKY_DRAW_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzo7tTaR8KMKXN8ruY44wZjp2lMecemYrqIfvwvuv_z2rLgf-IRZuyUslm06O-zIC7f/exec'; // Can use same script or different one
+export const LUCKY_DRAW_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwjupWMYmuukHmYsq0ANHEChWTsyi0xY_NB4ULZSvfZFCe39rug7t0LBYAWIOVaMoW7/exec'; // Can use same script or different one
+// Supply Station Team: We store the partner name directly in the weekly sheet in a "补给站搭档" or "Supply Station Partner" column
 
 // Updated Goal: 10,000km to Mohe (Arctic City)
 const GOAL_KM = 10000;
@@ -140,7 +141,165 @@ export default function App() {
       return { distance, frequency, dailyRecords };
   };
 
-  const processSheetsData = (sheetsMap: Record<string, any[]>) => {
+  // Save supply station team result directly to the weekly sheet
+  // We add a "补给站搭档" or "Supply Station Partner" column to mark the team members
+  const saveSupplyStationTeam = async (weekId: string, runner1: string, runner2: string, retryCount = 0) => {
+    if (!LUCKY_DRAW_SCRIPT_URL) {
+      console.warn('[Supply Station] Script URL not configured, skipping save');
+      return false;
+    }
+    
+    const maxRetries = 2;
+    const payload = {
+      action: 'saveSupplyStationTeam',
+      weekId: weekId,
+      runner1: runner1.trim(),
+      runner2: runner2.trim()
+    };
+    
+    try {
+      console.log(`[Supply Station] 💾 Saving team to weekly sheet (attempt ${retryCount + 1}/${maxRetries + 1}):`, payload);
+      console.log('[Supply Station] Script URL:', LUCKY_DRAW_SCRIPT_URL);
+      console.log('[Supply Station] Full request URL:', LUCKY_DRAW_SCRIPT_URL);
+      console.log('[Supply Station] Request payload:', JSON.stringify(payload, null, 2));
+      
+      // Use the same script URL as lucky draw
+      const response = await fetch(LUCKY_DRAW_SCRIPT_URL, {
+        method: 'POST',
+        mode: 'cors',
+        headers: { 
+          'Content-Type': 'text/plain' 
+        },
+        body: JSON.stringify(payload)
+      });
+      const result = await response.json();
+      console.log('[Supply Station] ✅ Response status:', response.status);
+      console.log('[Supply Station] 📦 Server Response:', result); // 这里会打印服务端返回的 success: true/false
+
+      if (!result.success) {
+         console.error('[Supply Station] ❌ Server Error:', result.error);
+         // 如果服务端报错，抛出异常进入 catch 块重试
+         throw new Error(result.error || 'Server returned false success');
+      }
+      
+      // Try to verify by reading back after a delay (best effort)
+      setTimeout(async () => {
+        try {
+          const csvUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(weekId)}`;
+          console.log('[Supply Station] 🔍 Verifying save by reading sheet:', csvUrl);
+          const verifyRes = await fetch(csvUrl);
+          if (verifyRes.ok) {
+            const text = await verifyRes.text();
+            console.log('[Supply Station] 📄 Sheet CSV content (first 500 chars):', text.substring(0, 500));
+            
+            // Check if partner column exists (兼容 '补给站组队' 旧数据)
+            const hasPartnerColumn = text.includes('补给站搭档') || text.includes('Supply Station Partner') || text.includes('补给站组队');
+            if (hasPartnerColumn) {
+              console.log('[Supply Station] ✅ Verification: Partner column found in sheet');
+              
+              // Parse CSV to check if runner names are in partner column
+              const lines = text.split('\n');
+              if (lines.length > 0) {
+                const headers = lines[0].split(',');
+                const partnerColIndex = headers.findIndex(h => 
+                  h.includes('补给站搭档') || h.includes('Supply Station Partner') || h.includes('补给站组队')
+                );
+                
+                if (partnerColIndex >= 0) {
+                  console.log('[Supply Station] 📍 Partner column index:', partnerColIndex);
+                  // Check if runner1 or runner2 appears in partner column
+                  for (let i = 1; i < lines.length; i++) {
+                    const row = lines[i].split(',');
+                    const nameInRow = row[0]?.trim().replace(/"/g, '');
+                    const partnerInRow = row[partnerColIndex]?.trim().replace(/"/g, '');
+                    
+                    if (nameInRow === runner1 && partnerInRow === runner2) {
+                      console.log('[Supply Station] ✅✅✅ VERIFIED: Team saved successfully!', {
+                        runner1: nameInRow,
+                        partner: partnerInRow
+                      });
+                      return true;
+                    }
+                    if (nameInRow === runner2 && partnerInRow === runner1) {
+                      console.log('[Supply Station] ✅✅✅ VERIFIED: Team saved successfully!', {
+                        runner1: nameInRow,
+                        partner: partnerInRow
+                      });
+                      return true;
+                    }
+                  }
+                  console.warn('[Supply Station] ⚠️ Partner column exists but team data not found. Please check Google Apps Script execution logs.');
+                  
+                  // Retry if not verified and retries left
+                  if (retryCount < maxRetries) {
+                    console.log(`[Supply Station] 🔄 Retrying save (${retryCount + 1}/${maxRetries})...`);
+                    setTimeout(() => {
+                      saveSupplyStationTeam(weekId, runner1, runner2, retryCount + 1);
+                    }, 2000);
+                  }
+                } else {
+                  console.warn('[Supply Station] ⚠️ Partner column header not found in parsed CSV');
+                }
+              }
+            } else {
+              console.error('[Supply Station] ❌ Verification FAILED: Partner column not found in sheet.');
+              console.error('[Supply Station] 📋 Debugging checklist:');
+              console.error('  1. ✅ Check Google Apps Script code is correct');
+              console.error('  2. ⚠️ IMPORTANT: Script must be re-deployed after code changes!');
+              console.error('  3. ✅ Check execution logs in Google Apps Script editor (View → Executions)');
+              console.error('  4. ✅ Verify the deployment URL matches LUCKY_DRAW_SCRIPT_URL');
+              console.error('  5. ✅ Check if weekId matches the sheet name exactly:', weekId);
+              console.error('  6. ✅ Check if runner names match exactly:', { runner1, runner2 });
+              
+              // Retry if not verified and retries left
+              if (retryCount < maxRetries) {
+                console.log(`[Supply Station] 🔄 Retrying save (${retryCount + 1}/${maxRetries})...`);
+                setTimeout(() => {
+                  saveSupplyStationTeam(weekId, runner1, runner2, retryCount + 1);
+                }, 2000);
+              } else {
+                console.error('[Supply Station] ❌ All retry attempts failed. Please check Google Apps Script execution logs manually.');
+              }
+            }
+          } else {
+            console.error('[Supply Station] ❌ Could not read sheet for verification:', verifyRes.status);
+          }
+        } catch (verifyError) {
+          console.error('[Supply Station] ❌ Verification error:', verifyError);
+        }
+      }, 4000); // Increased delay to 4 seconds to allow Google Sheets to update
+      
+      return true; // Request sent successfully (even though we can't verify due to no-cors)
+      
+    } catch (error) {
+      console.error('[Supply Station] ❌ Error saving team:', error);
+      
+      // Retry on error if retries left
+      if (retryCount < maxRetries) {
+        console.log(`[Supply Station] 🔄 Retrying save after error (${retryCount + 1}/${maxRetries})...`);
+        setTimeout(() => {
+          saveSupplyStationTeam(weekId, runner1, runner2, retryCount + 1);
+        }, 2000);
+      }
+      
+      return false;
+    }
+  };
+  
+  // Expose test function to window for manual testing in browser console
+  if (typeof window !== 'undefined') {
+    (window as any).testSupplyStationSave = async (weekId: string, runner1: string, runner2: string) => {
+      console.log('🧪 Testing Supply Station Save...');
+      console.log('Parameters:', { weekId, runner1, runner2 });
+      const result = await saveSupplyStationTeam(weekId, runner1, runner2);
+      console.log('Test result:', result);
+      return result;
+    };
+    console.log('💡 Tip: You can test the save function manually by calling:');
+    console.log('   window.testSupplyStationSave("W8", "bobo", "Annie")');
+  }
+
+  const processSheetsData = async (sheetsMap: Record<string, any[]>) => {
     const runnerTotals: Record<string, number> = {}; 
     const runnerWeekStreaks: Record<string, number> = {}; 
     const runnerNamesSet = new Set<string>();
@@ -216,7 +375,7 @@ export default function App() {
     cumulativeDistance = 0;
 
     // Second pass: Process in reverse order (latest first) for display, and apply supply station bonus
-    reversedSheets.forEach(sheetName => {
+    for (const sheetName of reversedSheets) {
         const sheetData = sheetsMap[sheetName] || [];
         const periodRunners: RunnerData[] = [];
         
@@ -228,10 +387,27 @@ export default function App() {
             const { distance: rawDistance, frequency, dailyRecords } = analyzeRow(row);
             const hasWeeklyStreak = frequency >= 5;
 
+            // Check if this runner is part of supply station team (from sheet column)
+            // Priority: "补给站搭档" (new column name) > "补给站组队" (old column name) > others
+            const supplyStationPartner = row['补给站搭档']?.trim() || row['补给站组队']?.trim() || 
+                                        row['Supply Station Partner']?.trim() || row['补给站伙伴']?.trim() || 
+                                        row['supply station partner']?.trim();
+            const isSupplyStationTeam = !!supplyStationPartner;
+
             // Apply 1.2x Bonus if they have a streak
             const bonusMultiplier = hasWeeklyStreak ? 1.2 : 1.0;
-            const finalDistance = rawDistance * bonusMultiplier;
-            const bonusDistance = finalDistance - rawDistance;
+            let finalDistance = rawDistance * bonusMultiplier;
+            let bonusDistance = finalDistance - rawDistance;
+
+            // If this runner is part of supply station team (has partner in sheet), apply 2x bonus
+            // Sheet stores raw distance, we apply 2x bonus here
+            if (isSupplyStationTeam) {
+                const originalAfterStreak = finalDistance; // Distance after streak bonus (1.2x if applicable)
+                finalDistance = originalAfterStreak * 2; // Apply 2x for supply station
+                bonusDistance = finalDistance - rawDistance; // Total bonus (streak + supply station)
+                supplyStationTeamMembers.add(name);
+                supplyStationBonus[name] = originalAfterStreak; // Store original (after streak) for Total View display
+            }
 
             if (finalDistance > 0) {
                 periodRunners.push({ 
@@ -241,7 +417,9 @@ export default function App() {
                     bonusDistance: bonusDistance,
                     hasStreak: hasWeeklyStreak,
                     dailyRecords: dailyRecords,
-                    weekId: sheetName
+                    weekId: sheetName,
+                    isSupplyStationTeam: isSupplyStationTeam,
+                    supplyStationPartner: supplyStationPartner || undefined
                 });
             }
 
@@ -253,15 +431,38 @@ export default function App() {
         });
 
         // Apply Supply Station Team Bonus (2x for both runners in the trigger week)
-        if (supplyStationTriggerRunner && supplyStationTriggerWeek === sheetName) {
-            console.log(`[Supply Station] 🔍 Checking week ${sheetName} for trigger runner ${supplyStationTriggerRunner.name}`);
+        if (supplyStationTriggerRunner !== null && supplyStationTriggerWeek === sheetName) {
+            const trigger = supplyStationTriggerRunner as { name: string; weekId: string };
+            const triggerRunnerName = trigger.name;
+            console.log(`[Supply Station] 🔍 Checking week ${sheetName} for trigger runner ${triggerRunnerName}`);
             // Find the trigger runner in this week's periodRunners
-            const triggerRunner = periodRunners.find(r => r.name === supplyStationTriggerRunner!.name);
+            const triggerRunner = periodRunners.find(r => r.name === triggerRunnerName);
             
-            if (triggerRunner && periodRunners.length > 1) {
-                // Select a partner from current week's runners (excluding trigger runner)
-                // Use a deterministic selection based on weekId and trigger name for consistency
-                const eligiblePartners = periodRunners.filter(r => r.name !== triggerRunner.name);
+            // Check if team is already saved in sheet (by checking if trigger runner has partner column)
+            // Priority: Use existing partner data from "补给站搭档" column if available
+            const hasTeamInSheet = triggerRunner?.isSupplyStationTeam && triggerRunner?.supplyStationPartner;
+            
+            if (hasTeamInSheet && triggerRunner && triggerRunner.supplyStationPartner) {
+                // Team already exists in sheet, use the existing partner data
+                const existingPartnerName = triggerRunner.supplyStationPartner;
+                const existingPartner = periodRunners.find(r => r.name === existingPartnerName);
+                
+                if (existingPartner) {
+                    console.log(`[Supply Station] ✅ Team already exists in sheet: ${triggerRunner.name} + ${existingPartnerName} in ${sheetName}`);
+                    console.log(`[Supply Station] 📊 Using existing team data - both runners already have 2x bonus applied from sheet data`);
+                    
+                    // Ensure both runners are marked as team members (they should already be from sheet data)
+                    supplyStationTeamMembers.add(triggerRunner.name);
+                    supplyStationTeamMembers.add(existingPartnerName);
+                    
+                    // runnerTotals are already updated in the main loop when processing sheet data
+                } else {
+                    console.warn(`[Supply Station] ⚠️ Partner ${existingPartnerName} not found in periodRunners, but team exists in sheet`);
+                }
+            } else if (!hasTeamInSheet && triggerRunner && periodRunners.length > 1) {
+                // Team not yet saved, need to select and save
+                // Select a partner from current week's runners (excluding trigger runner and those already in team)
+                const eligiblePartners = periodRunners.filter(r => r.name !== triggerRunner.name && !r.isSupplyStationTeam);
                 
                 if (eligiblePartners.length > 0) {
                     // Create a simple hash from weekId and trigger name for consistent selection
@@ -271,43 +472,61 @@ export default function App() {
                     const randomIndex = Math.abs(hash) % eligiblePartners.length;
                     const partner = eligiblePartners[randomIndex];
                     
-                    // Store original distances before applying 2x
+                    // Save the team selection to the weekly sheet
+                    console.log(`[Supply Station] 💾 Saving new team selection to weekly sheet: ${triggerRunner.name} + ${partner.name}`);
+                    await saveSupplyStationTeam(sheetName, triggerRunner.name, partner.name);
+                    
+                    // Apply 2x bonus to both runners
                     const triggerOriginalDistance = triggerRunner.distance;
                     const triggerOriginalRawDistance = triggerRunner.rawDistance || triggerRunner.distance;
                     const partnerOriginalDistance = partner.distance;
                     const partnerOriginalRawDistance = partner.rawDistance || partner.distance;
                     
-                    // Apply 2x bonus to both runners (double their weekly distance)
-                    // Keep rawDistance as original, distance becomes 2x, bonusDistance is the extra amount
-                    triggerRunner.rawDistance = triggerOriginalRawDistance; // Keep original raw distance
-                    triggerRunner.distance = triggerOriginalDistance * 2; // Double the final distance (after streak bonus if any)
-                    triggerRunner.bonusDistance = triggerRunner.distance - triggerOriginalRawDistance; // Total bonus = final - original raw
+                    // Update the runner data
+                    triggerRunner.rawDistance = triggerOriginalRawDistance;
+                    triggerRunner.distance = triggerOriginalDistance * 2;
+                    triggerRunner.bonusDistance = triggerRunner.distance - triggerOriginalRawDistance;
                     triggerRunner.isSupplyStationTeam = true;
                     triggerRunner.supplyStationPartner = partner.name;
                     supplyStationTeamMembers.add(triggerRunner.name);
-                    // Store bonus for Total View (the original distance that was doubled)
                     supplyStationBonus[triggerRunner.name] = triggerOriginalDistance;
                     
-                    partner.rawDistance = partnerOriginalRawDistance; // Keep original raw distance
-                    partner.distance = partnerOriginalDistance * 2; // Double the final distance (after streak bonus if any)
-                    partner.bonusDistance = partner.distance - partnerOriginalRawDistance; // Total bonus = final - original raw
+                    partner.rawDistance = partnerOriginalRawDistance;
+                    partner.distance = partnerOriginalDistance * 2;
+                    partner.bonusDistance = partner.distance - partnerOriginalRawDistance;
                     partner.isSupplyStationTeam = true;
                     partner.supplyStationPartner = triggerRunner.name;
                     supplyStationTeamMembers.add(partner.name);
-                    // Store bonus for Total View (the original distance that was doubled)
                     supplyStationBonus[partner.name] = partnerOriginalDistance;
                     
-                    // Update runnerTotals to reflect the 2x bonus (for Total View)
+                    // Update runnerTotals
                     runnerTotals[triggerRunner.name] = (runnerTotals[triggerRunner.name] || 0) - triggerOriginalDistance + triggerRunner.distance;
                     runnerTotals[partner.name] = (runnerTotals[partner.name] || 0) - partnerOriginalDistance + partner.distance;
                     
-                    console.log(`[Supply Station] ✅ Team formed: ${triggerRunner.name} (${triggerOriginalDistance.toFixed(1)} → ${triggerRunner.distance.toFixed(1)}km) + ${partner.name} (${partnerOriginalDistance.toFixed(1)} → ${partner.distance.toFixed(1)}km) in ${sheetName}`);
+                    console.log(`[Supply Station] ✅ Team formed and saved: ${triggerRunner.name} (${triggerOriginalDistance.toFixed(1)} → ${triggerRunner.distance.toFixed(1)}km) + ${partner.name} (${partnerOriginalDistance.toFixed(1)} → ${partner.distance.toFixed(1)}km) in ${sheetName}`);
                 } else {
                     console.log(`[Supply Station] ⚠️ No eligible partners found for ${triggerRunner.name} in ${sheetName}`);
                 }
+            } else if (hasTeamInSheet) {
+                console.log(`[Supply Station] ✅ Team already saved in sheet for ${sheetName}, using existing data`);
+                // Team already in sheet, bonus already applied in the forEach loop above
+                if (triggerRunner) {
+                    supplyStationTeamMembers.add(triggerRunner.name);
+                    if (triggerRunner.supplyStationPartner) {
+                        const partner = periodRunners.find(r => r.name === triggerRunner.supplyStationPartner);
+                        if (partner) {
+                            supplyStationTeamMembers.add(partner.name);
+                            // Calculate bonus from the distance (which should already be 2x)
+                            const originalDistance = triggerRunner.distance / 2;
+                            supplyStationBonus[triggerRunner.name] = originalDistance;
+                            supplyStationBonus[partner.name] = partner.distance / 2;
+                        }
+                    }
+                }
             } else {
-                if (!triggerRunner) {
-                    console.log(`[Supply Station] ⚠️ Trigger runner ${supplyStationTriggerRunner.name} not found in periodRunners for ${sheetName}`);
+                if (!triggerRunner && supplyStationTriggerRunner !== null) {
+                    const trigger = supplyStationTriggerRunner as { name: string; weekId: string };
+                    console.log(`[Supply Station] ⚠️ Trigger runner ${trigger.name} not found in periodRunners for ${sheetName}`);
                 } else if (periodRunners.length <= 1) {
                     console.log(`[Supply Station] ⚠️ Not enough runners in ${sheetName} (only ${periodRunners.length})`);
                 }
@@ -329,7 +548,7 @@ export default function App() {
             // Capture runners for Lucky Draw (Only those with distance > 0)
             latestWeekRunnersList.push(...periodRunners.map(r => r.name));
         }
-    });
+    }
 
     // Build Total Leaderboard
     // Find supply station partners for Total View from calculatedPeriods
@@ -521,7 +740,7 @@ export default function App() {
           throw new Error("No data found.");
       }
 
-      processSheetsData(sheetsMap);
+      await processSheetsData(sheetsMap);
       setLoading(false);
 
     } catch (err: any) {
